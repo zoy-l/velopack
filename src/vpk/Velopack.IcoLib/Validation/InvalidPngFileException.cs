@@ -1,5 +1,4 @@
 ﻿using System;
-using System.Runtime.Serialization;
 
 namespace Ico.Validation
 {
@@ -21,10 +20,6 @@ namespace Ico.Validation
         }
 
         public InvalidPngFileException(string message, Exception innerException) : base(message, innerException)
-        {
-        }
-
-        protected InvalidPngFileException(SerializationInfo info, StreamingContext context) : base(info, context)
         {
         }
 

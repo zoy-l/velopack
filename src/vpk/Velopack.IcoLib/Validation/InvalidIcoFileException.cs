@@ -1,10 +1,8 @@
-﻿using Ico.Model;
-using System;
-using System.Runtime.Serialization;
+﻿using System;
+using Ico.Model;
 
 namespace Ico.Validation
 {
-    [Serializable]
     public class InvalidIcoFileException : Exception
     {
         public ParseContext Context { get; private set; }
@@ -29,24 +27,14 @@ namespace Ico.Validation
             Context = context;
         }
 
-        protected InvalidIcoFileException(SerializationInfo info, StreamingContext context) : base(info, context)
-        {
-        }
-
         public override string ToString()
         {
-            if (Context != null)
-            {
-                if (Context.DisplayedPath != null && Context.ImageDirectoryIndex == null)
-                {
+            if (Context != null) {
+                if (Context.DisplayedPath != null && Context.ImageDirectoryIndex == null) {
                     return base.ToString() + $"\nFile: \"{Context.DisplayedPath}\"";
-                }
-                else if (Context.DisplayedPath != null && Context.ImageDirectoryIndex == null)
-                {
+                } else if (Context.DisplayedPath != null && Context.ImageDirectoryIndex == null) {
                     return base.ToString() + $"\nFile: \"{Context.DisplayedPath}\"";
-                }
-                else if (Context.DisplayedPath != null && Context.ImageDirectoryIndex.HasValue)
-                {
+                } else if (Context.DisplayedPath != null && Context.ImageDirectoryIndex.HasValue) {
                     return base.ToString() + $"\nFile: \"{Context.DisplayedPath}\"\nImage directory index: #{Context.ImageDirectoryIndex.Value}";
                 }
             }
