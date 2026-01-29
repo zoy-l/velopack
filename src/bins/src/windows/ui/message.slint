@@ -9,114 +9,126 @@ export component MessageDialog inherits Window {
 
     out property <int> clicked-index: -1;
     callback close-dialog(int);
+    callback window-move(length, length);
 
-    width: 500px;
-    height: 300px; // Dynamic height? Slint windows often need fixed or auto.
-    // We'll trust layouts.
+    width: 420px;
+    height: layout.preferred-height;
     title: dialog-title;
     no-frame: true;
     background: transparent;
 
-    Rectangle {
-        background: #ffffff;
-        border-radius: 12px;
-        border-width: 1px;
-        border-color: #e5e5e7;
-        drop-shadow-blur: 20px;
-        drop-shadow-color: rgba(0, 0, 0, 0.1);
-        clip: true;
+    layout := VerticalBox {
+        padding: 20px;
+        alignment: start;
 
-        VerticalLayout {
-            padding: 24px;
-            spacing: 24px;
+        Rectangle {
+            background: #ffffff;
+            border-radius: 8px;
+            border-width: 1px;
+            border-color: #e5e5e7;
+            drop-shadow-blur: 16px;
+            drop-shadow-color: rgba(0, 0, 0, 0.15);
+            drop-shadow-offset-y: 4px;
 
-            HorizontalLayout {
-                spacing: 20px;
-                alignment: start;
+            // Title bar area for dragging
+            TouchArea {
+                x: 0;
+                y: 0;
+                width: 100%;
+                height: 40px;
+                moved => {
+                    if (self.pressed) {
+                        root.window-move(self.mouse-x - self.pressed-x, self.mouse-y - self.pressed-y);
+                    }
+                }
+            }
 
-                // Icon
-                Rectangle {
-                    width: 48px;
-                    height: 48px;
+            VerticalBox {
+                padding: 16px;
+                spacing: 12px;
 
-                    Path {
-                        width: 100%;
-                        height: 100%;
-                        fill: {
-                            if root.type == "error" {
-                                #ff3b30
-                            } else if root.type == "warning" {
-                                #ffcc00
-                            } else {
-                                #007aff
+                HorizontalBox {
+                    padding: 0;
+                    spacing: 12px;
+                    alignment: start;
+
+                    // Icon
+                    Rectangle {
+                        width: 40px;
+                        height: 40px;
+
+                        Path {
+                            width: 100%;
+                            height: 100%;
+                            fill: {
+                                if root.type == "error" {
+                                    #ff3b30
+                                } else if root.type == "warning" {
+                                    #ffcc00
+                                } else {
+                                    #007aff
+                                }
+                            }
+                            commands: {
+                                if root.type == "error" {
+                                    "M 20 2 C 10.1 2 2 10.1 2 20 C 2 29.9 10.1 38 20 38 C 29.9 38 38 29.9 38 20 C 38 10.1 29.9 2 20 2 Z M 28 26 L 26 28 L 20 22 L 14 28 L 12 26 L 18 20 L 12 14 L 14 12 L 20 18 L 26 12 L 28 14 L 22 20 L 28 26 Z"
+                                } else if root.type == "warning" {
+                                    "M 20 4 L 38 34 L 2 34 Z M 18 14 L 18 24 L 22 24 L 22 14 Z M 18 28 L 18 32 L 22 32 L 22 28 Z"
+                                } else {
+                                    "M 20 2 C 10.1 2 2 10.1 2 20 C 2 29.9 10.1 38 20 38 C 29.9 38 38 29.9 38 20 C 38 10.1 29.9 2 20 2 Z M 18 10 L 22 10 L 22 14 L 18 14 Z M 18 18 L 22 18 L 22 32 L 18 32 Z"
+                                }
                             }
                         }
-                        // Simple Icons using paths
-                         commands: {
-                            if root.type == "error" {
-                                "M 24 2 C 11.8 2 2 11.8 2 24 C 2 36.2 11.8 46 24 46 C 36.2 46 46 36.2 46 24 C 46 11.8 36.2 2 24 2 Z M 34 31 L 31 34 L 24 27 L 17 34 L 14 31 L 21 24 L 14 17 L 17 14 L 24 21 L 31 14 L 34 17 L 27 24 L 34 31 Z"
-                            } else if root.type == "warning" {
-                                "M 24 4 L 44 42 L 4 42 Z M 22 16 L 22 30 L 26 30 L 26 16 Z M 22 34 L 22 38 L 26 38 L 26 34 Z"
-                            } // Triangle rough
-                            else {
-                                "M 24 2 C 11.8 2 2 11.8 2 24 C 2 36.2 11.8 46 24 46 C 36.2 46 46 36.2 46 24 C 46 11.8 36.2 2 24 2 Z M 22 10 L 26 10 L 26 14 L 22 14 Z M 22 18 L 26 18 L 26 36 L 22 36 Z"
-                            } // Info (i)
+                    }
+
+                    VerticalLayout {
+                        spacing: 4px;
+                        Text {
+                            text: root.heading;
+                            font-size: 16px;
+                            font-weight: 700;
+                            color: #1d1d1f;
+                            wrap: word-wrap;
+                            visible: root.heading != "";
+                        }
+
+                        Text {
+                            text: root.text;
+                            font-size: 13px;
+                            color: #515154;
+                            wrap: word-wrap;
                         }
                     }
                 }
 
-                VerticalLayout {
-                    spacing: 8px;
-                    Text {
-                        text: root.heading;
-                        font-size: 18px;
-                        font-weight: 700;
-                        color: #1d1d1f;
-                        wrap: word-wrap;
-                        visible: root.heading != "";
-                    }
+                // Buttons
+                HorizontalBox {
+                    padding: 0;
+                    spacing: 12px;
+                    alignment: end;
 
-                    Text {
-                        text: root.text;
-                        font-size: 14px;
-                        color: #515154;
-                        wrap: word-wrap;
-                        vertical-alignment: center;
-                    }
-                }
-            }
+                    for btn[i] in root.buttons: Rectangle {
+                        min-width: 80px;
+                        height: 32px;
+                        border-radius: 6px;
+                        background: touch.pressed ? #e5e5e7 : (touch.has-hover ? #f2f2f7 : #f5f5f7);
+                        border-width: 1px;
+                        border-color: #d2d2d7;
 
-            // Spacer
-            Rectangle {
-                vertical-stretch: 1;
-            }
-
-            // Buttons
-            HorizontalLayout {
-                spacing: 12px;
-                alignment: end;
-
-                for btn[i] in root.buttons: Rectangle {
-                    width: 100px; // Minimal width
-                    height: 36px;
-                    border-radius: 6px;
-                    background: touch.pressed ? #e5e5e7 : (touch.has-hover ? #f2f2f7 : #f5f5f7);
-                    border-width: 1px;
-                    border-color: #d2d2d7;
-
-                    touch := TouchArea {
-                        clicked => {
-                            root.close-dialog(i);
+                        touch := TouchArea {
+                            clicked => {
+                                root.close-dialog(i);
+                            }
                         }
-                    }
 
-                    Text {
-                        text: btn;
-                        color: #000000;
-                        font-weight: 500;
-                        horizontal-alignment: center;
-                        vertical-alignment: center;
-                        font-size: 13px;
+                        Text {
+                            text: btn;
+                            color: #000000;
+                            font-weight: 500;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                            font-size: 13px;
+                        }
                     }
                 }
             }

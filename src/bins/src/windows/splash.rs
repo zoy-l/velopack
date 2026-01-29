@@ -8,10 +8,11 @@ slint::include_modules!();
 
 pub const MSG_CLOSE: i16 = -1;
 pub const MSG_INDEFINITE: i16 = -2;
+pub const MSG_START_INSTALL: i16 = -3;
 
 pub fn show_progress_dialog<T1: AsRef<str>, T2: AsRef<str>>(window_title: T1, content: T2) -> Sender<i16> {
     let title_str = window_title.as_ref().to_string();
-    let status = content.as_ref().to_string();
+    let _status = content.as_ref().to_string();
     let (app_clean_name, sub_text) = if let Some(stripped) = title_str.strip_suffix(" Update") {
         (stripped.to_string(), "正在更新")
     } else if let Some(stripped) = title_str.strip_suffix(" Setup") {
@@ -26,10 +27,37 @@ pub fn show_progress_dialog<T1: AsRef<str>, T2: AsRef<str>>(window_title: T1, co
         let window = SetupWindow::new().unwrap();
         window.set_app_name(app_clean_name.into());
         window.set_sub_text(sub_text.into());
-        window.set_status_text(status.into());
+        window.set_current_step(0); // Welcome 页面
 
         let weak = window.as_weak();
         window.on_close(move || {
+            if let Some(w) = weak.upgrade() {
+                let _ = w.hide();
+            }
+        });
+
+        let weak = window.as_weak();
+        window.on_window_move(move |dx, dy| {
+            if let Some(w) = weak.upgrade() {
+                let window = w.window();
+                let scale_factor = window.scale_factor();
+                let pos = window.position();
+                let new_pos = slint::PhysicalPosition::new(pos.x + (dx * scale_factor) as i32, pos.y + (dy * scale_factor) as i32);
+                window.set_position(new_pos);
+            }
+        });
+
+        // 点击开始安装按钮后切换到安装页面
+        let weak = window.as_weak();
+        window.on_start_install(move || {
+            if let Some(w) = weak.upgrade() {
+                w.set_current_step(1); // Installing 页面
+            }
+        });
+
+        // 点击启动应用按钮后关闭窗口
+        let weak = window.as_weak();
+        window.on_launch_app(move || {
             if let Some(w) = weak.upgrade() {
                 let _ = w.hide();
             }
@@ -49,10 +77,37 @@ pub fn show_splash_dialog(app_name: String) -> Sender<i16> {
         let window = SetupWindow::new().unwrap();
         window.set_app_name(app_name.clone().into());
         window.set_sub_text("正在安装".into());
-        window.set_status_text(format!("正在安装 {}...", app_name).into());
+        window.set_current_step(0); // Welcome 页面
 
         let weak = window.as_weak();
         window.on_close(move || {
+            if let Some(w) = weak.upgrade() {
+                let _ = w.hide();
+            }
+        });
+
+        let weak = window.as_weak();
+        window.on_window_move(move |dx, dy| {
+            if let Some(w) = weak.upgrade() {
+                let window = w.window();
+                let scale_factor = window.scale_factor();
+                let pos = window.position();
+                let new_pos = slint::PhysicalPosition::new(pos.x + (dx * scale_factor) as i32, pos.y + (dy * scale_factor) as i32);
+                window.set_position(new_pos);
+            }
+        });
+
+        // 点击开始安装按钮后切换到安装页面
+        let weak = window.as_weak();
+        window.on_start_install(move || {
+            if let Some(w) = weak.upgrade() {
+                w.set_current_step(1); // Installing 页面
+            }
+        });
+
+        // 点击启动应用按钮后关闭窗口
+        let weak = window.as_weak();
+        window.on_launch_app(move || {
             if let Some(w) = weak.upgrade() {
                 let _ = w.hide();
             }
@@ -100,6 +155,17 @@ pub fn show_overwrite_dialog(
             }
         });
 
+        let weak = window.as_weak();
+        window.on_window_move(move |dx, dy| {
+            if let Some(w) = weak.upgrade() {
+                let window = w.window();
+                let scale_factor = window.scale_factor();
+                let pos = window.position();
+                let new_pos = slint::PhysicalPosition::new(pos.x + (dx * scale_factor) as i32, pos.y + (dy * scale_factor) as i32);
+                window.set_position(new_pos);
+            }
+        });
+
         let _ = window.run();
     });
 
@@ -129,6 +195,17 @@ pub fn show_msg_dialog(title: String, header: String, body: String, dialog_type:
             }
         });
 
+        let weak = window.as_weak();
+        window.on_window_move(move |dx, dy| {
+            if let Some(w) = weak.upgrade() {
+                let window = w.window();
+                let scale_factor = window.scale_factor();
+                let pos = window.position();
+                let new_pos = slint::PhysicalPosition::new(pos.x + (dx * scale_factor) as i32, pos.y + (dy * scale_factor) as i32);
+                window.set_position(new_pos);
+            }
+        });
+
         let _ = window.run();
     });
 
@@ -149,10 +226,20 @@ where
                     }
                 });
                 break;
+            } else if msg == MSG_START_INSTALL {
+                let _ = slint::invoke_from_event_loop(move || {
+                    if let Some(w) = w.upgrade() {
+                        w.set_current_step(1); // 切换到 Installing 页面
+                    }
+                });
             } else if msg >= 0 {
                 let _ = slint::invoke_from_event_loop(move || {
                     if let Some(w) = w.upgrade() {
                         w.set_progress(msg as f32);
+                        // 进度达到 100% 时自动切换到 Complete 页面
+                        if msg >= 100 {
+                            w.set_current_step(2);
+                        }
                     }
                 });
             }
@@ -162,11 +249,16 @@ where
 
 trait ProgressSetter {
     fn set_progress(&self, value: f32);
+    fn set_current_step(&self, step: i32);
 }
 
 impl ProgressSetter for SetupWindow {
     fn set_progress(&self, value: f32) {
         self.set_progress(value);
+    }
+
+    fn set_current_step(&self, step: i32) {
+        self.set_current_step(step);
     }
 }
 
@@ -193,11 +285,16 @@ mod tests {
     #[ignore]
     fn test_show_setup() {
         let tx = show_progress_dialog("Velopack 安装", "正在准备环境...");
+        // 等待用户手动点击"开始安装"按钮
+        println!("请点击'开始安装'按钮...");
+        std::thread::sleep(std::time::Duration::from_secs(5));
+        // 模拟进度更新
         for i in 0..=100 {
             let _ = tx.send(i as i16);
-            std::thread::sleep(std::time::Duration::from_millis(10));
+            std::thread::sleep(std::time::Duration::from_millis(30));
         }
-        // 延长观察时间
+        // 延长观察时间，查看完成页面
+        println!("安装完成，窗口将保持 60 秒...");
         std::thread::sleep(std::time::Duration::from_secs(60));
         let _ = tx.send(MSG_CLOSE);
     }
