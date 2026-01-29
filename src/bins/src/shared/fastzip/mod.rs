@@ -1,18 +1,59 @@
 #![allow(dead_code)]
 
 mod cloneable_seekable_reader;
-mod mtzip;
 mod progress_updater;
 mod ripunzip;
 
 use anyhow::Result;
-pub use mtzip::level::CompressionLevel;
 use ripunzip::{UnzipEngine, UnzipOptions};
 use std::{
     fs::File,
+    io::{Read, Write},
     path::{Path, PathBuf},
 };
 use walkdir::WalkDir;
+
+/// Compression level that should be used when compressing a file or data.
+/// Current compression providers support only levels from 0 to 9, so these are the only ones being supported.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct CompressionLevel(u8);
+
+impl CompressionLevel {
+    #[inline]
+    pub const fn new(level: u8) -> Option<Self> {
+        if level <= 9 {
+            Some(Self(level))
+        } else {
+            None
+        }
+    }
+    #[inline]
+    pub const fn none() -> Self {
+        Self(0)
+    }
+    #[inline]
+    pub const fn fast() -> Self {
+        Self(1)
+    }
+    #[inline]
+    pub const fn balanced() -> Self {
+        Self(6)
+    }
+    #[inline]
+    pub const fn best() -> Self {
+        Self(9)
+    }
+    #[inline]
+    pub const fn get(self) -> u8 {
+        self.0
+    }
+}
+
+impl Default for CompressionLevel {
+    fn default() -> Self {
+        Self::balanced()
+    }
+}
 
 /// A trait of types which wish to hear progress updates on the unzip.
 pub trait UnzipProgressReporter: Sync {
@@ -59,18 +100,36 @@ pub fn extract_to_directory<'b, P1: AsRef<Path>, P2: AsRef<Path>>(
     Ok(())
 }
 
-pub fn compress_directory<'b, P1: AsRef<Path>, P2: AsRef<Path>>(target_dir: P1, output_file: P2, level: CompressionLevel) -> Result<()> {
-    let target_dir = target_dir.as_ref().to_path_buf();
-    let mut zipper = mtzip::ZipArchive::new();
-    let workdir_relative_paths = enumerate_files_relative(&target_dir);
-    for relative_path in &workdir_relative_paths {
-        zipper
-            .add_file_from_fs(target_dir.join(&relative_path), relative_path.to_string_lossy().to_string())
-            .compression_level(level)
-            .done();
+pub fn compress_directory<'b, P1: AsRef<Path>, P2: AsRef<Path>>(target_dir: P1, output_file: P2, _level: CompressionLevel) -> Result<()> {
+    let target_dir = target_dir.as_ref();
+    let output_file = output_file.as_ref();
+
+    let file = File::create(&output_file)?;
+    let mut zip = zip::ZipWriter::new(file);
+
+    let options = zip::write::FileOptions::<()>::default().compression_method(zip::CompressionMethod::Deflated).unix_permissions(0o755);
+
+    let walker = WalkDir::new(target_dir).into_iter();
+    for entry in walker {
+        let entry = entry?;
+        let path = entry.path();
+
+        let name = path.strip_prefix(target_dir)?.to_string_lossy();
+        let name = name.replace("\\", "/"); // zip spec requires forward slashes
+
+        if path.is_dir() {
+            if !name.is_empty() {
+                zip.add_directory(name, options)?;
+            }
+        } else {
+            zip.start_file(name, options)?;
+            let mut f = File::open(path)?;
+            let mut buffer = Vec::new();
+            f.read_to_end(&mut buffer)?;
+            zip.write_all(&buffer)?;
+        }
     }
-    let mut file = File::create(&output_file)?;
-    zipper.write_with_rayon(&mut file)?;
+    zip.finish()?;
     Ok(())
 }
 

@@ -21,7 +21,5 @@ public class UserInfoException : Exception
     {
     }
 
-    protected UserInfoException(SerializationInfo info, StreamingContext context) : base(info, context)
-    {
-    }
+
 }

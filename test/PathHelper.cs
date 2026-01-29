@@ -1,10 +1,12 @@
-﻿using System.Diagnostics;
+﻿namespace Velopack.Tests;
+
+using System.Diagnostics;
 using Velopack;
 
 public static class PathHelper
 {
     public static bool IsCI => Environment.GetEnvironmentVariable("CI") != null;
-    
+
     public static string GetFixturesDir()
         => Path.Combine(GetTestRoot(), "fixtures");
 

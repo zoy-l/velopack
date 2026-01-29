@@ -3,7 +3,7 @@
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
     <AssemblyName>VelopackCSharpWpf</AssemblyName>
-    <TargetFramework>net48</TargetFramework>
+    <TargetFramework>net8.0-windows</TargetFramework>
     <ImplicitUsings>true</ImplicitUsings>
     <UseWPF>true</UseWPF>
   </PropertyGroup>

@@ -233,7 +233,21 @@ fn apply(matches: &ArgMatches) -> Result<()> {
 
     let locator = auto_locate_app_manifest(LocationContext::IAmUpdateExe)?;
     let _mutex = locator.try_get_exclusive_lock()?;
-    let _ = commands::apply(&locator, restart, wait, package, exe_args, true)?;
+
+    if let Err(e) = commands::apply(&locator, restart, wait, package, exe_args, true) {
+        error!("Error applying update: {}", e);
+        if let Some(package) = package {
+            if package.exists() {
+                warn!("Attempting to delete failed package: {:?}", package);
+                if let Err(e) = std::fs::remove_file(package) {
+                    error!("Failed to delete package: {}", e);
+                } else {
+                    info!("Successfully deleted failed package.");
+                }
+            }
+        }
+        return Err(e);
+    }
     Ok(())
 }
 
