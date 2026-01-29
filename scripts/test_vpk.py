@@ -4,7 +4,7 @@ import sys
 
 def run_command(command, cwd=None):
     print(f"Running: {' '.join(command)}")
-    result = subprocess.run(command, cwd=cwd, shell=True)
+    result = subprocess.run(command, cwd=cwd, shell=False)
     if result.returncode != 0:
         print(f"Error: Command failed with exit code {result.returncode}")
         sys.exit(result.returncode)
@@ -12,11 +12,11 @@ def run_command(command, cwd=None):
 def check_and_install_tools():
     print("--- Checking Dependencies ---")
     # check if dotnet-coverage is installed
-    result = subprocess.run(["dotnet", "tool", "list", "-g"], capture_output=True, text=True, shell=True)
+    result = subprocess.run(["dotnet", "tool", "list", "-g"], capture_output=True, text=True, shell=False)
     if "dotnet-coverage" not in result.stdout:
         print("Installing missing tool: dotnet-coverage")
         # We don't use run_command here to avoid exiting if installation fails
-        subprocess.run(["dotnet", "tool", "install", "-g", "dotnet-coverage"], shell=True)
+        subprocess.run(["dotnet", "tool", "install", "-g", "dotnet-coverage"], shell=False)
     else:
         print("dotnet-coverage is already installed.")
 
@@ -26,9 +26,24 @@ def ensure_placeholders(root_dir, config):
     if not os.path.exists(target_dir):
         os.makedirs(target_dir)
 
+    import shutil
+    if sys.platform == "darwin":
+        update_path = os.path.join(target_dir, "update")
+        if os.path.exists(update_path):
+            shutil.copy(update_path, os.path.join(target_dir, "UpdateMac"))
+    elif sys.platform == "linux":
+        update_path = os.path.join(target_dir, "update")
+        if os.path.exists(update_path):
+            import platform
+            arch = platform.machine().lower()
+            if "arm" in arch or "aarch" in arch:
+                shutil.copy(update_path, os.path.join(target_dir, "UpdateNix_arm64"))
+            else:
+                shutil.copy(update_path, os.path.join(target_dir, "UpdateNix_x64"))
+
     # HelperFile.cs looks for "update" in DEBUG, and specific names in RELEASE
     # We create all of them to be safe.
-    placeholders = ["update", "UpdateMac", "UpdateNix_x64", "UpdateNix_arm64"]
+    placeholders = ["update", "UpdateMac", "UpdateNix_x64", "UpdateNix_arm64", "update.exe", "setup.exe", "stub.exe"]
     for p in placeholders:
         p_path = os.path.join(target_dir, p)
         if not os.path.exists(p_path):
@@ -58,7 +73,10 @@ def main():
     rust_bins_dir = os.path.join(root_dir, "src", "bins")
     if os.path.exists(rust_bins_dir):
         # Using --all-features to ensure all code paths are tested
-        run_command(["cargo", "test", "--all-features"], cwd=rust_bins_dir)
+        test_cmd = ["cargo", "test"]
+        if sys.platform == "win32":
+            test_cmd.append("--all-features")
+        run_command(test_cmd, cwd=rust_bins_dir)
     else:
         print(f"Warning: Rust bins directory not found at {rust_bins_dir}. Skipping.")
 
