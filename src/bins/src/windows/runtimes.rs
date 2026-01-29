@@ -11,7 +11,6 @@ const REDIST_2015_2022_X64: &str = "https://aka.ms/vs/17/release/vc_redist.x64.e
 const REDIST_2015_2022_ARM64: &str = "https://aka.ms/vs/17/release/vc_redist.arm64.exe";
 const NDP_REG_KEY: &str = "SOFTWARE\\Microsoft\\NET Framework Setup\\NDP\\v4\\Full";
 const UNINSTALL_REG_KEY: &str = "Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall";
-const WEBVIEW2_EVERGREEN: &str = "https://go.microsoft.com/fwlink/p/?LinkId=2124703";
 const DOTNET_UNCACHED_FEED: &str = "https://dotnetcli.blob.core.windows.net/dotnet";
 const DOTNET_CDN_FEED: &str = "https://builds.dotnet.microsoft.com/dotnet";
 
@@ -530,51 +529,6 @@ fn parse_dotnet_version(version: &str) -> Result<DotnetInfo> {
     Ok(DotnetInfo { display_name, version: version_str, architecture, runtime_type })
 }
 
-#[derive(Clone, Debug)]
-pub struct WebView2Info {}
-
-impl RuntimeInfo for WebView2Info {
-    fn get_exe_name(&self) -> String {
-        "inst-webview2-evergreen.exe".to_string()
-    }
-
-    fn display_name(&self) -> &str {
-        "Microsoft Edge WebView2 Runtime"
-    }
-
-    fn get_download_url(&self) -> Result<String> {
-        Ok(WEBVIEW2_EVERGREEN.to_owned())
-    }
-
-    fn is_installed(&self) -> bool {
-        let result = super::webview2::get_webview_version();
-        if let Some(version) = result {
-            info!("WebView2 version: {}", version);
-            true
-        } else {
-            false
-        }
-    }
-
-    fn install(&self, installer_path: &str, quiet: bool) -> Result<RuntimeInstallResult> {
-        let args = if quiet { vec!["/silent", "/install"] } else { vec!["/install"] };
-
-        info!("Running installer: '{}', args={:?}", installer_path, args);
-        let mut cmd = Process::new(installer_path).args(&args).spawn()?;
-        let result: i32 = cmd.wait()?.code().ok_or_else(|| anyhow!("Unable to get installer exit code."))?;
-
-        match result {
-            0 => Ok(RuntimeInstallResult::InstallSuccess), // success
-            _ => Err(anyhow!("Installer failed with exit code: {}", result)),
-        }
-    }
-}
-
-#[test]
-fn test_webview2_is_installed() {
-    assert!(WebView2Info {}.is_installed());
-}
-
 pub fn parse_dependency_list(list: &str) -> Vec<Box<dyn RuntimeInfo>> {
     let mut vec: Vec<Box<dyn RuntimeInfo>> = Vec::new();
     for dep in list.split(',') {
@@ -582,9 +536,7 @@ pub fn parse_dependency_list(list: &str) -> Vec<Box<dyn RuntimeInfo>> {
         if dep.is_empty() {
             continue;
         }
-        if dep == "webview2" {
-            vec.push(Box::new(WebView2Info {}));
-        } else if let Some(info) = HM_NET_FX.get(dep) {
+        if let Some(info) = HM_NET_FX.get(dep) {
             vec.push(Box::new(info.clone()));
         } else if let Some(info) = HM_VCREDIST.get(dep) {
             vec.push(Box::new(info.clone()));

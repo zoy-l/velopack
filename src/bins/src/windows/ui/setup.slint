@@ -1,0 +1,119 @@
+export component SetupWindow inherits Window {
+    in property <image> app-icon;
+    in property <string> app-name: "应用程序";
+    in property <float> progress: 0.0;
+    in property <string> status-text: "准备安装...";
+    in property <string> sub-text: "正在安装";
+
+    callback close();
+
+    width: 600px;
+    height: 400px;
+    title: "Velopack " + sub-text;
+    icon: app-icon;
+    no-frame: true;
+    background: transparent;
+
+    Rectangle {
+        width: 100%;
+        height: 100%;
+        background: #f5f5f7;
+        border-radius: 16px;
+        border-width: 1px;
+        border-color: #e5e5e7;
+        clip: true;
+
+        // 窗口拖拽区域 (模拟)
+        TouchArea {
+            height: 60px;
+            width: parent.width - 60px;
+        }
+
+        // 关闭按钮
+        Rectangle {
+            x: parent.width - 40px;
+            y: 12px;
+            width: 28px;
+            height: 28px;
+            border-radius: 14px;
+            background: close-touch.pressed ? #e5e5e7 : (close-touch.has-hover ? #ededef : transparent);
+
+            Path {
+                width: 12px;
+                height: 12px;
+                stroke: close-touch.has-hover ? #1d1d1f : #86868b;
+                stroke-width: 1.5px;
+                commands: "M 0 0 L 12 12 M 12 0 L 0 12";
+            }
+
+            close-touch := TouchArea {
+                clicked => {
+                    root.close();
+                }
+            }
+
+            animate background { duration: 150ms; }
+        }
+
+        VerticalLayout {
+            padding: 40px;
+            padding-top: 60px;
+            spacing: 25px;
+            alignment: center;
+
+            Image {
+                source: root.app-icon;
+                width: 80px;
+                height: 80px;
+                horizontal-alignment: center;
+            }
+
+            Text {
+                text: root.sub-text + " " + root.app-name;
+                font-size: 28px;
+                font-weight: 700;
+                color: #1d1d1f;
+                horizontal-alignment: center;
+            }
+
+            VerticalLayout {
+                spacing: 12px;
+
+                // 进度条
+                Rectangle {
+                    width: 100%;
+                    height: 20px;
+                    background: #e5e5e7;
+                    border-radius: 10px;
+
+                    Rectangle {
+                        x: 0;
+                        width: parent.width * Math.max(0, Math.min(1, root.progress / 100));
+                        height: 100%;
+                        background: @linear-gradient(90deg, #0071e3 0%, #00c7be 100%);
+                        border-radius: 10px;
+
+                        animate width {
+                            duration: 300ms;
+                            easing: ease-out;
+                        }
+                    }
+                }
+
+                Text {
+                    text: root.status-text;
+                    font-size: 15px;
+                    color: #86868b;
+                    horizontal-alignment: center;
+                }
+            }
+
+            Text {
+                text: Math.round(root.progress) + "%";
+                font-size: 12px;
+                color: #afafb6;
+                horizontal-alignment: center;
+            }
+        }
+    }
+}

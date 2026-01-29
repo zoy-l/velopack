@@ -69,6 +69,7 @@ sha1_smol.workspace = true
 rayon.workspace = true
 progress-streams.workspace = true
 flate2.workspace = true
+slint.workspace = true
 
 [target.'cfg(target_os="linux")'.dependencies]
 waitpid-any.workspace = true
@@ -113,7 +114,6 @@ windows = { workspace = true, features = [
     "Wdk_System",
     "Wdk_System_Threading",
 ] }
-webview2-com-sys.workspace = true
 libloading.workspace = true
 strsim.workspace = true
 same-file.workspace = true
@@ -126,6 +126,7 @@ pretty_assertions.workspace = true
 
 [build-dependencies]
 semver.workspace = true
+slint-build.workspace = true
 
 [target.'cfg(windows)'.build-dependencies]
 winres.workspace = true

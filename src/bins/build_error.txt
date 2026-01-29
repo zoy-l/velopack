@@ -1,0 +1,36 @@
+   Compiling velopack_bins v0.0.0-local (C:\Users\zoy-l\Documents\velopack\src\bins)
+warning: unused variable: `root_is_default`
+   --> src\bins\src\shared\dialogs_windows.rs:132:74
+    |
+132 | pub fn show_overwrite_repair_dialog(app: &Manifest, root_path: &PathBuf, root_is_default: bool) -> bool {
+    |                                                                          ^^^^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_root_is_default`
+    |
+    = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+error[E0597]: `result` does not live long enough
+  --> src\bins\src\windows\overwrite_dialog.rs:86:6
+   |
+30 |     let result = Arc::new(Mutex::new(false));
+   |         ------ binding `result` declared here
+...
+86 |     *result.lock().unwrap()
+   |      ^^^^^^----------------
+   |      |
+   |      borrowed value does not live long enough
+   |      a temporary with access to the borrow is created here ...
+87 | }
+   | -
+   | |
+   | `result` dropped here while still borrowed
+   | ... and the borrow might be used here, when that temporary is dropped and runs the `Drop` code for type `std::sync::MutexGuard`
+   |
+   = note: the temporary is part of an expression at the end of a block;
+           consider forcing this temporary to be dropped sooner, before the block's local variables are dropped
+help: for example, you could save the expression's value in a new local variable `x` and then make `x` be the expression at the end of the block
+   |
+86 |     let x = *result.lock().unwrap(); x
+   |     +++++++                        +++
+
+For more information about this error, try `rustc --explain E0597`.
+warning: `velopack_bins` (lib) generated 1 warning
+error: could not compile `velopack_bins` (lib) due to 1 previous error; 1 warning emitted

@@ -25,6 +25,8 @@ fn main() {
         .set("LegalCopyright", "Caelan Sayler (c) 2023, Velopack Ltd. (c) 2024")
         .compile()
         .unwrap();
+
+    slint_build::compile("src/windows/ui/index.slint").unwrap();
 }
 
 #[cfg(target_os = "windows")]

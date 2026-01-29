@@ -4,23 +4,22 @@ use crate::{
     windows,
 };
 use velopack::bundle::BundleZip;
-use velopack::locator::*;
 use velopack::constants;
+use velopack::locator::*;
 
+use ::windows::core::PCWSTR;
+use ::windows::Win32::Storage::FileSystem::GetDiskFreeSpaceExW;
 use anyhow::{anyhow, bail, Result};
 use pretty_bytes_rust::pretty_bytes;
 use std::{
     fs::{self},
     path::{Path, PathBuf},
 };
-use ::windows::core::PCWSTR;
-use ::windows::Win32::Storage::FileSystem::GetDiskFreeSpaceExW;
 
 pub fn install(pkg: &mut BundleZip, install_to: Option<&PathBuf>, start_args: Option<Vec<&str>>) -> Result<()> {
     // find and parse nuspec
     info!("Reading package manifest...");
     let app = pkg.read_manifest()?;
-
 
     info!("Package manifest loaded successfully.");
     info!("    Package ID: {}", &app.id);
@@ -89,11 +88,36 @@ pub fn install(pkg: &mut BundleZip, install_to: Option<&PathBuf>, start_args: Op
     // does the target directory exist and have files? (eg. already installed)
     if !shared::is_dir_empty(&root_path) {
         // the target directory is not empty, and not dead
-        if !dialogs::show_overwrite_repair_dialog(&app, &root_path, root_is_default) {
-            // user cancelled overwrite prompt
-            error!("Directory already exists, and user cancelled overwrite.");
-            return Ok(());
+        if !dialogs::get_silent() {
+            let mut old_version_str = String::new();
+            let mut dialog_type = "repair".to_string();
+
+            let old_app = auto_locate_app_manifest(LocationContext::FromSpecifiedRootDir(root_path.to_owned()));
+            if let Ok(old) = old_app {
+                let old_version = old.get_manifest_version();
+                old_version_str = old_version.to_string();
+                if old_version < app.version {
+                    dialog_type = "update".to_string();
+                } else if old_version > app.version {
+                    dialog_type = "downgrade".to_string();
+                }
+            }
+
+            let install_path_display = if root_is_default { format!("%LocalAppData%\\{}", app.id) } else { root_path_str.to_string() };
+
+            if !windows::splash::show_overwrite_dialog(
+                app.title.clone(),
+                dialog_type,
+                old_version_str,
+                app.version.to_string(),
+                install_path_display,
+            ) {
+                // user cancelled overwrite prompt
+                error!("Directory already exists, and user cancelled overwrite.");
+                return Ok(());
+            }
         }
+
         info!("User chose to overwrite existing installation.");
 
         shared::force_stop_package(&root_path).map_err(|z| {
@@ -113,7 +137,7 @@ pub fn install(pkg: &mut BundleZip, install_to: Option<&PathBuf>, start_args: Op
 
     info!("Preparing and cleaning installation directory...");
     remove_dir_all::ensure_empty_dir(&root_path)?;
-    
+
     info!("Acquiring lock...");
     let paths = create_config_from_root_dir(&root_path);
     let locator = VelopackLocator::new_with_manifest(paths, app);
@@ -124,9 +148,8 @@ pub fn install(pkg: &mut BundleZip, install_to: Option<&PathBuf>, start_args: Op
         let (tx, _) = std::sync::mpsc::channel::<i16>();
         tx
     } else {
-        info!("Reading splash image...");
-        let splash_bytes = pkg.get_splash_bytes();
-        windows::splash::show_splash_dialog(locator.get_manifest_title(), splash_bytes)
+        info!("Showing splash window...");
+        windows::splash::show_splash_dialog(locator.get_manifest_title())
     };
 
     let install_result = install_impl(pkg, &locator, &tx, start_args);
@@ -152,7 +175,12 @@ pub fn install(pkg: &mut BundleZip, install_to: Option<&PathBuf>, start_args: Op
     Ok(())
 }
 
-fn install_impl(pkg: &mut BundleZip, locator: &VelopackLocator, tx: &std::sync::mpsc::Sender<i16>, start_args: Option<Vec<&str>>) -> Result<()> {
+fn install_impl(
+    pkg: &mut BundleZip,
+    locator: &VelopackLocator,
+    tx: &std::sync::mpsc::Sender<i16>,
+    start_args: Option<Vec<&str>>,
+) -> Result<()> {
     info!("Starting installation!");
 
     // all application paths
