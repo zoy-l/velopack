@@ -106,6 +106,35 @@ pub fn show_overwrite_dialog(
     rx.recv().unwrap_or(false)
 }
 
+pub fn show_msg_dialog(title: String, header: String, body: String, dialog_type: String, buttons: Vec<String>) -> usize {
+    let (tx, rx) = mpsc::channel::<usize>();
+
+    thread::spawn(move || {
+        let window = MessageDialog::new().unwrap();
+        window.set_dialog_title(title.into());
+        window.set_heading(header.into());
+        window.set_text(body.into());
+        window.set_type(dialog_type.into());
+
+        let model =
+            std::rc::Rc::new(slint::VecModel::from(buttons.iter().map(|s| s.as_str().into()).collect::<Vec<slint::SharedString>>()));
+        window.set_buttons(model.into());
+
+        let weak = window.as_weak();
+        let tx = tx.clone();
+        window.on_close_dialog(move |index| {
+            let _ = tx.send(index as usize);
+            if let Some(w) = weak.upgrade() {
+                let _ = w.hide();
+            }
+        });
+
+        let _ = window.run();
+    });
+
+    rx.recv().unwrap_or(0)
+}
+
 fn spawn_progress_loop<W: ComponentHandle + 'static>(weak: slint::Weak<W>, rx: Receiver<i16>)
 where
     W: ProgressSetter,
@@ -184,5 +213,20 @@ mod tests {
             "%LocalAppData%\\Programs\\Microsoft VS Code".to_string(),
         );
         println!("Dialog result: {}", result);
+    }
+
+    #[test]
+    #[ignore]
+    fn test_show_message() {
+        let buttons = vec!["Retry".to_string(), "Continue".to_string(), "Cancel".to_string()];
+        let result = show_msg_dialog(
+            "Velopack Error".to_string(),
+            "Application Error".to_string(),
+            "The application failed to start because of a missing dependency.\n\nPlease install .NET Runtime expecting version >= 6.0."
+                .to_string(),
+            "error".to_string(),
+            buttons,
+        );
+        println!("Message Dialog Result Index: {}", result);
     }
 }
