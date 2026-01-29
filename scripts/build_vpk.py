@@ -11,7 +11,8 @@ def run_command(command, cwd=None):
         sys.exit(result.returncode)
 
 def main():
-    root_dir = os.path.dirname(os.path.abspath(__file__))
+    # Since this script is now in 'scripts/' directory, root is one level up
+    root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
     # 1. Prepare Rust environment
     print("--- Preparing Rust Environment ---")

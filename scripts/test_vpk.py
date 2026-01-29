@@ -37,7 +37,8 @@ def ensure_placeholders(root_dir, config):
                 f.write("")
 
 def main():
-    root_dir = os.path.dirname(os.path.abspath(__file__))
+    # Since this script is now in 'scripts/' directory, root is one level up
+    root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
     # 0. Check and install required .NET tools
     check_and_install_tools()
