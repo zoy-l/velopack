@@ -685,7 +685,7 @@ public class WindowsPackTests(ITestOutputHelper output)
                 Environment.NewLine,
                 output
                     .Split('\n')
-                    .Where(l => !l.Contains("Code coverage results"))
+                    .Where(l => !l.Contains("coverage results") && !l.Contains("覆盖率结果"))
                     .Select(l => l.Trim())
             ).Trim();
         } finally {

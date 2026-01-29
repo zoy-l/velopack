@@ -29,31 +29,7 @@ namespace Velopack.Util
 
         private static string GetNextTempName(string tempDir)
         {
-            for (int i = 1; i < 1000; i++) {
-                string name = "temp." + i;
-                var target = Path.Combine(tempDir, name);
-
-                FileSystemInfo? info = null;
-                if (Directory.Exists(target)) info = new DirectoryInfo(target);
-                else if (File.Exists(target)) info = new FileInfo(target);
-
-                // this dir/file does not exist, lets use it.
-                if (info == null) {
-                    return target;
-                }
-
-                // this dir/file exists, but it is old, let's re-use it.
-                // this shouldn't generally happen, but crashes do exist.
-                if (DateTime.UtcNow - info.LastWriteTimeUtc > TimeSpan.FromDays(1)) {
-                    if (IoUtil.DeleteFileOrDirectoryHard(target, false, true)) {
-                        // the dir/file was deleted successfully.
-                        return target;
-                    }
-                }
-            }
-
-            throw new Exception(
-                "Unable to find free temp path. Has the temp directory exceeded it's maximum number of items? (1000)");
+            return Path.Combine(tempDir, Guid.NewGuid().ToString("N"));
         }
 
         public static IDisposable GetTempDirectory(out string newTempDirectory)
