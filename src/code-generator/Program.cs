@@ -110,11 +110,7 @@ var cppTypesTemplate = Handlebars.Compile(File.ReadAllText(Path.Combine(template
 var cppTypes = cppTypesTemplate(handlebarData);
 Util.ReplaceTextInFile(rustCppInclude, "CPP_TYPES", cppTypes.ToString().ReplaceLineEndings("\n"));
 
-// --- python generation ---
-string pythonAssetRs = Path.Combine(scriptsDir, "..", "lib-python", "src", "types.rs");
-var pythonAssetTemplate = Handlebars.Compile(File.ReadAllText(Path.Combine(templatesDir, "python_asset.hbs")));
-var pythonAsset = pythonAssetTemplate(handlebarData);
-File.WriteAllText(pythonAssetRs, pythonAsset.ToString().ReplaceLineEndings("\n"));
+// --- python generation removed ---
 
 // --- nodejs generation ---
 var libnodeTypesFile = Path.Combine(scriptsDir, "..", "lib-nodejs", "src", "types.ts");
