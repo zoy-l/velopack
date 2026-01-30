@@ -1,3 +1,4 @@
+use i_slint_backend_winit::WinitWindowAccessor;
 use slint::ComponentHandle;
 use std::{
     sync::mpsc::{self, Receiver, Sender},
@@ -9,6 +10,71 @@ slint::include_modules!();
 pub const MSG_CLOSE: i16 = -1;
 pub const MSG_INDEFINITE: i16 = -2;
 pub const MSG_START_INSTALL: i16 = -3;
+
+/// 在 Windows 上隐藏标题栏但保留圆角和阴影
+/// 使用 DWM API 扩展客户区到标题栏区域
+#[cfg(target_os = "windows")]
+fn apply_windows_decorations(w: &i_slint_backend_winit::winit::window::Window) {
+    use i_slint_backend_winit::winit::raw_window_handle::{HasWindowHandle, RawWindowHandle};
+    if let Ok(handle) = w.window_handle() {
+        if let RawWindowHandle::Win32(win32_handle) = handle.as_raw() {
+            use windows::core::BOOL;
+            use windows::Win32::Foundation::HWND;
+            use windows::Win32::Graphics::Dwm::{DwmExtendFrameIntoClientArea, DwmSetWindowAttribute, DWMWA_USE_IMMERSIVE_DARK_MODE};
+            use windows::Win32::UI::Controls::MARGINS;
+
+            let hwnd = HWND(win32_handle.hwnd.get() as *mut _);
+
+            unsafe {
+                // 使用 DWM 扩展客户区到整个窗口（包括标题栏区域）
+                // 设置 top margin 为 -1 表示完全隐藏标题栏但保留边框效果
+                let margins = MARGINS {
+                    cxLeftWidth: 0,
+                    cxRightWidth: 0,
+                    cyTopHeight: -1, // -1 表示扩展到整个窗口
+                    cyBottomHeight: 0,
+                };
+                let _ = DwmExtendFrameIntoClientArea(hwnd, &margins);
+
+                // 启用深色模式边框（可选，用于深色主题）
+                let use_dark_mode: BOOL = BOOL::from(true);
+                let _ = DwmSetWindowAttribute(
+                    hwnd,
+                    DWMWA_USE_IMMERSIVE_DARK_MODE,
+                    &use_dark_mode as *const _ as *const _,
+                    std::mem::size_of::<BOOL>() as u32,
+                );
+            }
+        }
+    }
+}
+
+/// 执行一次性的窗口装饰设置
+fn setup_native_decorations<W: ComponentHandle + 'static>(window_handle: &W) {
+    #[cfg(target_os = "macos")]
+    {
+        window_handle.window().with_winit_window(|w| {
+            use i_slint_backend_winit::winit::platform::macos::WindowExtMacOS;
+            w.set_titlebar_transparent(true);
+            w.set_title_hidden(true);
+            w.set_fullsize_content_view(true);
+        });
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        let weak = window_handle.as_weak();
+        // 使用异步 spawn，在窗口句柄准备好后只执行一次
+        slint::spawn_local(async move {
+            if let Some(w_handle) = weak.upgrade() {
+                if let Ok(winit_window) = w_handle.window().winit_window().await {
+                    apply_windows_decorations(&winit_window);
+                }
+            }
+        })
+        .unwrap();
+    }
+}
 
 pub fn show_progress_dialog<T1: AsRef<str>, T2: AsRef<str>>(window_title: T1, content: T2) -> Sender<i16> {
     let title_str = window_title.as_ref().to_string();
@@ -25,6 +91,11 @@ pub fn show_progress_dialog<T1: AsRef<str>, T2: AsRef<str>>(window_title: T1, co
 
     thread::spawn(move || {
         let window = SetupWindow::new().unwrap();
+
+        // 执行一次性装饰初始化
+        setup_native_decorations(&window);
+        let _ = window.show();
+
         window.set_app_name(app_clean_name.into());
         window.set_sub_text(sub_text.into());
         window.set_current_step(0); // Welcome 页面
@@ -75,6 +146,11 @@ pub fn show_splash_dialog(app_name: String) -> Sender<i16> {
 
     thread::spawn(move || {
         let window = SetupWindow::new().unwrap();
+
+        // 执行一次性装饰初始化
+        setup_native_decorations(&window);
+        let _ = window.show();
+
         window.set_app_name(app_name.clone().into());
         window.set_sub_text("正在安装".into());
         window.set_current_step(0); // Welcome 页面
@@ -131,6 +207,11 @@ pub fn show_overwrite_dialog(
 
     thread::spawn(move || {
         let window = OverwriteDialog::new().unwrap();
+
+        // 执行一次性装饰初始化
+        setup_native_decorations(&window);
+        let _ = window.show();
+
         window.set_app_name(app_name.into());
         window.set_dialog_type(dialog_type.into());
         window.set_old_version(old_version.into());
@@ -177,6 +258,11 @@ pub fn show_msg_dialog(title: String, header: String, body: String, dialog_type:
 
     thread::spawn(move || {
         let window = MessageDialog::new().unwrap();
+
+        // 执行一次性装饰初始化
+        setup_native_decorations(&window);
+        let _ = window.show();
+
         window.set_dialog_title(title.into());
         window.set_heading(header.into());
         window.set_text(body.into());

@@ -14,546 +14,322 @@ export component SetupWindow inherits Window {
     callback start-install();
     callback launch-app();
 
-    width: layout.preferred-width;
-    height: layout.preferred-height;
+    width: 480px;
+    height: 360px;
     title: "Verse";
     icon: app-icon;
     no-frame: true;
-    background: transparent;
+    background: #0a0a0a;
 
-    layout := VerticalBox {
-        padding: 24px;
-        alignment: start;
+    // 主内容区域
+    VerticalLayout {
+        width: 100%;
+        height: 100%;
 
-        main-container := Rectangle {
-            width: 600px;
-            height: 420px;
-            background: #0a0a0a;
-            border-radius: 8px;
-            border-width: 1px;
-            border-color: #262626;
-            drop-shadow-blur: 12px;
-            drop-shadow-color: rgba(0, 0, 0, 0.4);
-            clip: true;
+        // 可拖拽的顶部栏
+        Rectangle {
+            height: 48px;
 
-            HorizontalLayout {
-                // 侧边栏
+            TouchArea {
+                width: 100%;
+                height: 100%;
+                moved => {
+                    if (self.pressed) {
+                        root.window-move(self.mouse-x - self.pressed-x, self.mouse-y - self.pressed-y);
+                    }
+                }
+            }
+
+            // 关闭按钮
+            close-btn := TouchArea {
+                x: parent.width - 32px;
+                y: 8px;
+                width: 24px;
+                height: 24px;
+                clicked => {
+                    root.close();
+                }
+
                 Rectangle {
-                    width: 30%;
-                    background: #121212;
+                    width: 100%;
+                    height: 100%;
+                    background: close-btn.has-hover ? #ef4444 : transparent;
+                    border-radius: 6px;
 
-                    // 侧边栏右侧的分隔线
-                    Rectangle {
-                        x: parent.width - 1px;
-                        width: 1px;
-                        height: 100%;
-                        background: #262626;
+                    Path {
+                        width: 10px;
+                        height: 10px;
+                        stroke: close-btn.has-hover ? #ffffff : #525252;
+                        stroke-width: 1.5px;
+                        commands: "M 0 0 L 10 10 M 10 0 L 0 10";
+                        x: 7px;
+                        y: 7px;
+                    }
+                }
+            }
+        }
+
+        // 内容区域
+                VerticalLayout {
+            padding: 32px;
+            padding-top: 10px;
+            spacing: 32px;
+            alignment: center;
+
+            // Step 0: Welcome 页面
+                    if root.current-step == 0: VerticalLayout {
+                spacing: 20px;
+
+                // Logo 展示
+                        Rectangle {
+                    width: 80px;
+                    height: 80px;
+                    x: parent.width / 2 - self.width / 2;
+
+                    Image {
+                        source: @image-url("product_logo_128.png");
+                        width: 64px;
+                        height: 64px;
+                        image-fit: contain;
+                    }
+                }
+
+                // 欢迎文字
+                        VerticalLayout {
+                    spacing: 8px;
+                    alignment: center;
+
+                    Text {
+                        text: "欢迎使用 " + root.app-name;
+                        font-size: 20px;
+                        font-weight: 700;
+                        color: #ffffff;
+                        horizontal-alignment: center;
                     }
 
-                    VerticalLayout {
-                        padding: 24px;
-                        spacing: 16px;
-                        alignment: start;
+                    Text {
+                        text: "点击下方按钮开始安装";
+                        font-size: 13px;
+                        color: #a3a3a3;
+                        horizontal-alignment: center;
+                    }
+                }
 
-                        // Logo 区域
-                        HorizontalLayout {
-                            spacing: 10px;
-                            alignment: start;
+                // 开始安装按钮
+                        start-btn := TouchArea {
+                    x: parent.width / 2 - self.width / 2;
+                    width: 140px;
+                    height: 40px;
+                    clicked => {
+                        root.start-install();
+                    }
 
-                            Rectangle {
-                                width: 28px;
-                                height: 28px;
-                                border-radius: 6px;
-                                clip: true;
+                    Rectangle {
+                        width: 100%;
+                        height: 100%;
+                        background: start-btn.has-hover ? #e5e5e5 : #ffffff;
+                        border-radius: 8px;
 
-                                Image {
-                                    source: @image-url("product_logo_128.png");
-                                    width: 100%;
-                                    height: 100%;
-                                    image-fit: contain;
-                                }
-                            }
+                        Text {
+                            text: "开始安装";
+                            font-size: 14px;
 
-                            Text {
-                                text: "Velopack";
-                                color: #ffffff;
-                                font-weight: 700;
-                                font-size: 14px;
-                                vertical-alignment: center;
-                            }
+                            color: #000000;
+                            vertical-alignment: center;
                         }
+                    }
+                }
+            }
 
-                        // 步骤指示器
+            // Step 1: Installing 页面
+                    if root.current-step == 1: VerticalLayout {
+                spacing: 24px;
+                alignment: center;
+
+                // 应用图标预览
                         VerticalLayout {
-                            padding-top: 20px;
-                            spacing: 18px;
+                    spacing: 16px;
+                    alignment: center;
 
-                            // Welcome 步骤
-                            HorizontalLayout {
-                                spacing: 12px;
+                    Rectangle {
+                        width: 80px;
+                        height: 80px;
+                        x: parent.width / 2 - self.width / 2;
 
-                                Rectangle {
-                                    width: 14px;
-                                    height: 14px;
-                                    border-radius: 7px;
-                                    border-width: root.current-step == 0 ? 2px : 1px;
-                                    border-color: root.current-step >= 0 ? #ffffff : #404040;
-                                    background: root.current-step > 0 ? #ffffff : (root.current-step == 0 ? #ffffff : #262626);
+                        Image {
+                            source: @image-url("product_logo_128.png");
+                            width: 64px;
+                            height: 64px;
+                            image-fit: contain;
+                        }
+                    }
 
-                                    // 已完成的勾选图标
-                                    Path {
-                                        visible: root.current-step > 0;
-                                        width: 8px;
-                                        height: 8px;
-                                        fill: #000000;
-                                        commands: "M 1 4 L 3 6 L 7 2";
-                                        stroke: #000000;
-                                        stroke-width: 1.5px;
-                                        x: 3px;
-                                        y: 3px;
-                                    }
-                                }
+                    Text {
+                        text: root.sub-text + " " + root.app-name;
+                        font-size: 20px;
+                        font-weight: 700;
+                        color: #ffffff;
+                        horizontal-alignment: center;
+                        wrap: word-wrap;
+                    }
+                }
 
-                                Text {
-                                    text: "Welcome";
-                                    color: root.current-step >= 0 ? #ffffff : #737373;
-                                    font-size: 12px;
-                                    font-weight: root.current-step == 0 ? 600 : 400;
-                                }
-                            }
+                // 进度信息
+                        VerticalLayout {
+                    spacing: 12px;
 
-                            // Install 步骤
-                            HorizontalLayout {
-                                spacing: 12px;
-
-                                Rectangle {
-                                    width: 14px;
-                                    height: 14px;
-                                    border-radius: 7px;
-                                    border-width: root.current-step == 1 ? 2px : 1px;
-                                    border-color: root.current-step >= 1 ? #ffffff : #404040;
-                                    background: root.current-step > 1 ? #ffffff : (root.current-step == 1 ? #ffffff : transparent);
-
-                                    Path {
-                                        visible: root.current-step > 1;
-                                        width: 8px;
-                                        height: 8px;
-                                        fill: #000000;
-                                        commands: "M 1 4 L 3 6 L 7 2";
-                                        stroke: #000000;
-                                        stroke-width: 1.5px;
-                                        x: 3px;
-                                        y: 3px;
-                                    }
-                                }
-
-                                Text {
-                                    text: "Install";
-                                    color: root.current-step >= 1 ? #ffffff : #404040;
-                                    font-size: 12px;
-                                    font-weight: root.current-step == 1 ? 600 : 400;
-                                }
-                            }
-
-                            // Finish 步骤
-                            HorizontalLayout {
-                                spacing: 12px;
-
-                                Rectangle {
-                                    width: 14px;
-                                    height: 14px;
-                                    border-radius: 7px;
-                                    border-width: root.current-step == 2 ? 2px : 1px;
-                                    border-color: root.current-step >= 2 ? #ffffff : #262626;
-                                    background: root.current-step >= 2 ? #ffffff : transparent;
-
-                                    Path {
-                                        visible: root.current-step >= 2;
-                                        width: 8px;
-                                        height: 8px;
-                                        fill: #000000;
-                                        commands: "M 1 4 L 3 6 L 7 2";
-                                        stroke: #000000;
-                                        stroke-width: 1.5px;
-                                        x: 3px;
-                                        y: 3px;
-                                    }
-                                }
-
-                                Text {
-                                    text: "Finish";
-                                    color: root.current-step >= 2 ? #ffffff : #404040;
-                                    font-size: 12px;
-                                    font-weight: root.current-step == 2 ? 600 : 400;
-                                }
-                            }
+                    HorizontalLayout {
+                        Text {
+                            text: "0%";
+                            color: #a3a3a3;
+                            font-size: 12px;
                         }
 
-                        // 填充剩余空间
-                        Rectangle {
-                            vertical-stretch: 1;
+                        Rectangle { }
+
+                        Text {
+                            text: Math.round(root.progress) + "%";
+                            color: #ffffff;
+                            font-size: 12px;
+                            font-weight: 600;
                         }
+                    }
 
-                        // 版本信息
-                        HorizontalLayout {
-                            spacing: 8px;
+                    // 进度条背景
+                                Rectangle {
+                        height: 6px;
+                        background: #262626;
+                        border-radius: 3px;
+                        clip: true;
 
-                            Rectangle {
-                                width: 6px;
-                                height: 6px;
-                                border-radius: 3px;
-                                background: #10b981;
-                                y: 4px;
-                            }
+                        // 实际进度
+                                    Rectangle {
+                            x: 0;
+                            width: parent.width * Math.max(0, Math.min(1, root.progress / 100));
+                            height: 100%;
+                            background: #ffffff;
+                            border-radius: 3px;
 
-                            Text {
-                                text: "v2.0.4 stable";
-                                color: #525252;
-                                font-size: 10px;
-                                font-family: "monospaced";
+                            animate width {
+                                duration: 250ms;
+                                easing: ease-out;
                             }
                         }
                     }
                 }
 
-                // 右侧主内容区域
-                VerticalLayout {
-                    width: 70%;
+                Text {
+                    text: "请稍候，正在完成安装...";
+                    font-size: 12px;
+                    color: #525252;
+                    horizontal-alignment: center;
+                }
+            }
 
-                    // 可拖拽的顶部栏
-                    Rectangle {
-                        height: 48px;
+            // Step 2: Complete 页面
+                        if root.current-step == 2: VerticalLayout {
+                spacing: 20px;
+                alignment: center;
 
-                        TouchArea {
-                            width: 100%;
-                            height: 100%;
-                            moved => {
-                                if (self.pressed) {
-                                    root.window-move(self.mouse-x - self.pressed-x, self.mouse-y - self.pressed-y);
-                                }
-                            }
+                // 成功图标
+                            Rectangle {
+                    width: 64px;
+                    height: 64px;
+                    background: #052e16;
+                    border-radius: 32px;
+                    border-width: 1px;
+                    border-color: #166534;
+                    x: parent.width / 2 - self.width / 2;
+
+                    // 勾选图标
+                                Path {
+                        width: 28px;
+                        height: 28px;
+                        stroke: #22c55e;
+                        stroke-width: 3px;
+                        commands: "M 4 14 L 11 21 L 24 7";
+                        x: 18px;
+                        y: 18px;
+                    }
+                }
+
+                // 完成文字
+                            VerticalLayout {
+                    spacing: 8px;
+                    alignment: center;
+
+                    Text {
+                        text: "安装完成";
+                        font-size: 20px;
+                        font-weight: 700;
+                        color: #ffffff;
+                        horizontal-alignment: center;
+                    }
+
+                    Text {
+                        text: root.app-name + " 已成功安装到您的设备";
+                        font-size: 13px;
+                        color: #a3a3a3;
+                        horizontal-alignment: center;
+                    }
+                }
+
+                // 按钮区域
+                            VerticalLayout {
+                    spacing: 10px;
+                    alignment: center;
+
+                    // 启动应用按钮
+                                launch-btn := TouchArea {
+                        x: parent.width / 2 - self.width / 2;
+                        width: 160px;
+                        height: 40px;
+                        clicked => {
+                            root.launch-app();
                         }
 
-                        // 关闭按钮
-                        close-btn := TouchArea {
-                            x: parent.width - 32px;
-                            y: 8px;
-                            width: 24px;
-                            height: 24px;
-                            clicked => {
-                                root.close();
-                            }
+                        Rectangle {
+                            width: 100%;
+                            height: 100%;
+                            background: launch-btn.has-hover ? #e5e5e5 : #ffffff;
+                            border-radius: 8px;
 
-                            Rectangle {
-                                width: 100%;
-                                height: 100%;
-                                background: close-btn.has-hover ? #ef4444 : transparent;
-                                border-radius: 6px;
+                            HorizontalLayout {
+                                alignment: center;
+                                spacing: 8px;
 
-                                Path {
-                                    width: 10px;
-                                    height: 10px;
-                                    stroke: close-btn.has-hover ? #ffffff : #525252;
-                                    stroke-width: 1.5px;
-                                    commands: "M 0 0 L 10 10 M 10 0 L 0 10";
-                                    x: 7px;
-                                    y: 7px;
+                                Text {
+                                    text: "启动 " + root.app-name;
+                                    font-size: 14px;
+                                    font-weight: 600;
+                                    color: #000000;
+                                    vertical-alignment: center;
                                 }
                             }
                         }
                     }
 
-                    // 内容区域
-                    VerticalLayout {
-                        padding: 32px;
-                        padding-top: 10px;
-                        spacing: 32px;
-                        alignment: center;
-
-                        // Step 0: Welcome 页面
-                        if root.current-step == 0: VerticalLayout {
-                            spacing: 20px;
-                            alignment: center;
-
-                            // Logo 展示
-                            Rectangle {
-                                width: 80px;
-                                height: 80px;
-                                background: #1a1a1a;
-                                border-radius: 16px;
-                                border-width: 1px;
-                                border-color: #333333;
-
-                                Image {
-                                    source: @image-url("product_logo_128.png");
-                                    width: 56px;
-                                    height: 56px;
-                                    image-fit: contain;
-                                }
-                            }
-
-                            // 欢迎文字
-                            VerticalLayout {
-                                spacing: 8px;
-                                alignment: center;
-
-                                Text {
-                                    text: "欢迎使用 " + root.app-name;
-                                    font-size: 20px;
-                                    font-weight: 700;
-                                    color: #ffffff;
-                                    horizontal-alignment: center;
-                                }
-
-                                Text {
-                                    text: "点击下方按钮开始安装";
-                                    font-size: 13px;
-                                    color: #a3a3a3;
-                                    horizontal-alignment: center;
-                                }
-                            }
-
-                            // 开始安装按钮
-                            start-btn := TouchArea {
-                                width: 140px;
-                                height: 40px;
-                                clicked => {
-                                    root.start-install();
-                                }
-
-                                Rectangle {
-                                    width: 100%;
-                                    height: 100%;
-                                    background: start-btn.has-hover ? #e5e5e5 : #ffffff;
-                                    border-radius: 8px;
-
-                                    HorizontalLayout {
-                                        alignment: center;
-                                        spacing: 8px;
-
-                                        Text {
-                                            text: "开始安装";
-                                            font-size: 14px;
-                                            font-weight: 600;
-                                            color: #000000;
-                                            vertical-alignment: center;
-                                        }
-
-                                        // 箭头图标
-                                        Path {
-                                            width: 12px;
-                                            height: 12px;
-                                            stroke: #000000;
-                                            stroke-width: 2px;
-                                            commands: "M 2 6 L 10 6 M 6 2 L 10 6 L 6 10";
-                                            y: 2px;
-                                        }
-                                    }
-                                }
-                            }
+                    // 退出按钮
+                            exit-btn := TouchArea {
+                        x: parent.width / 2 - self.width / 2;
+                        width: 160px;
+                        height: 40px;
+                        clicked => {
+                            root.close();
                         }
 
-                        // Step 1: Installing 页面
-                        if root.current-step == 1: VerticalLayout {
-                            spacing: 24px;
-                            alignment: center;
-
-                            // 应用图标预览
-                            VerticalLayout {
-                                spacing: 16px;
-                                alignment: center;
-
-                                Rectangle {
-                                    width: 64px;
-                                    height: 64px;
-                                    background: #1a1a1a;
-                                    border-radius: 12px;
-                                    border-width: 1px;
-                                    border-color: #333333;
-
-                                    Image {
-                                        source: root.app-icon;
-                                        width: 48px;
-                                        height: 48px;
-                                    }
-                                }
-
-                                Text {
-                                    text: root.sub-text + " " + root.app-name;
-                                    font-size: 20px;
-                                    font-weight: 700;
-                                    color: #ffffff;
-                                    horizontal-alignment: center;
-                                    wrap: word-wrap;
-                                }
-                            }
-
-                            // 进度信息
-                            VerticalLayout {
-                                spacing: 12px;
-
-                                HorizontalLayout {
-                                    Text {
-                                        text: "0%";
-                                        color: #a3a3a3;
-                                        font-size: 12px;
-                                    }
-
-                                    Rectangle { }
-
-                                    Text {
-                                        text: Math.round(root.progress) + "%";
-                                        color: #ffffff;
-                                        font-size: 12px;
-                                        font-weight: 600;
-                                    }
-                                }
-
-                                // 进度条背景
-                                Rectangle {
-                                    height: 6px;
-                                    background: #262626;
-                                    border-radius: 3px;
-                                    clip: true;
-
-                                    // 实际进度
-                                    Rectangle {
-                                        x: 0;
-                                        width: parent.width * Math.max(0, Math.min(1, root.progress / 100));
-                                        height: 100%;
-                                        background: #ffffff;
-                                        border-radius: 3px;
-
-                                        animate width {
-                                            duration: 250ms;
-                                            easing: ease-out;
-                                        }
-                                    }
-                                }
-                            }
+                        Rectangle {
+                            width: 100%;
+                            height: 100%;
+                            background: exit-btn.has-hover ? #262626 : #1a1a1a;
+                            border-radius: 8px;
 
                             Text {
-                                text: "请稍候，正在完成安装...";
-                                font-size: 12px;
-                                color: #525252;
+                                text: "退出安装程序";
+                                font-size: 13px;
+                                color: #a3a3a3;
                                 horizontal-alignment: center;
-                            }
-                        }
-
-                        // Step 2: Complete 页面
-                        if root.current-step == 2: VerticalLayout {
-                            spacing: 20px;
-                            alignment: center;
-
-                            // 成功图标
-                            Rectangle {
-                                width: 64px;
-                                height: 64px;
-                                background: #052e16;
-                                border-radius: 32px;
-                                border-width: 1px;
-                                border-color: #166534;
-
-                                // 勾选图标
-                                Path {
-                                    width: 28px;
-                                    height: 28px;
-                                    stroke: #22c55e;
-                                    stroke-width: 3px;
-                                    commands: "M 4 14 L 11 21 L 24 7";
-                                    x: 18px;
-                                    y: 18px;
-                                }
-                            }
-
-                            // 完成文字
-                            VerticalLayout {
-                                spacing: 8px;
-                                alignment: center;
-
-                                Text {
-                                    text: "安装完成！";
-                                    font-size: 20px;
-                                    font-weight: 700;
-                                    color: #ffffff;
-                                    horizontal-alignment: center;
-                                }
-
-                                Text {
-                                    text: root.app-name + " 已成功安装到您的设备";
-                                    font-size: 13px;
-                                    color: #a3a3a3;
-                                    horizontal-alignment: center;
-                                }
-                            }
-
-                            // 按钮区域
-                            VerticalLayout {
-                                spacing: 10px;
-                                alignment: center;
-
-                                // 启动应用按钮
-                                launch-btn := TouchArea {
-                                    width: 160px;
-                                    height: 40px;
-                                    clicked => {
-                                        root.launch-app();
-                                    }
-
-                                    Rectangle {
-                                        width: 100%;
-                                        height: 100%;
-                                        background: launch-btn.has-hover ? #e5e5e5 : #ffffff;
-                                        border-radius: 8px;
-
-                                        HorizontalLayout {
-                                            alignment: center;
-                                            spacing: 8px;
-
-                                            // 火箭图标
-                                            Path {
-                                                width: 14px;
-                                                height: 14px;
-                                                stroke: #000000;
-                                                stroke-width: 1.5px;
-                                                commands: "M 2 12 L 7 7 M 5 14 L 14 5 C 14 2, 12 0, 9 0 L 0 9 C 0 12, 2 14, 5 14 Z M 0 14 L 4 10";
-                                                y: 1px;
-                                            }
-
-                                            Text {
-                                                text: "启动 " + root.app-name;
-                                                font-size: 14px;
-                                                font-weight: 600;
-                                                color: #000000;
-                                                vertical-alignment: center;
-                                            }
-                                        }
-                                    }
-                                }
-
-                                // 退出按钮
-                                exit-btn := TouchArea {
-                                    width: 160px;
-                                    height: 36px;
-                                    clicked => {
-                                        root.close();
-                                    }
-
-                                    Rectangle {
-                                        width: 100%;
-                                        height: 100%;
-                                        background: exit-btn.has-hover ? #262626 : #1a1a1a;
-                                        border-radius: 8px;
-
-                                        Text {
-                                            text: "退出安装程序";
-                                            font-size: 13px;
-                                            color: #a3a3a3;
-                                            horizontal-alignment: center;
-                                            vertical-alignment: center;
-                                        }
-                                    }
-                                }
+                                vertical-alignment: center;
                             }
                         }
                     }
