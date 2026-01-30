@@ -208,8 +208,6 @@ pub fn show_overwrite_dialog(
     thread::spawn(move || {
         let window = OverwriteDialog::new().unwrap();
 
-        // 执行一次性装饰初始化
-        setup_native_decorations(&window);
         let _ = window.show();
 
         window.set_app_name(app_name.into());
@@ -259,8 +257,6 @@ pub fn show_msg_dialog(title: String, header: String, body: String, dialog_type:
     thread::spawn(move || {
         let window = MessageDialog::new().unwrap();
 
-        // 执行一次性装饰初始化
-        setup_native_decorations(&window);
         let _ = window.show();
 
         window.set_dialog_title(title.into());
