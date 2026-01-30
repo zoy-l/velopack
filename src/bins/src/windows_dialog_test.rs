@@ -124,7 +124,7 @@ fn main() -> Result<()> {
             let tx = velopack_bins::windows::splash::show_splash_dialog(name, None);
             for i in (0..=100).step_by(5) {
                 let _ = tx.send(i as i16);
-                std::thread::sleep(std::time::Duration::from_millis(100));
+                std::thread::sleep(std::time::Duration::from_millis(1000));
             }
             let _ = tx.send(velopack_bins::windows::splash::MSG_CLOSE);
             std::thread::sleep(std::time::Duration::from_millis(500));
