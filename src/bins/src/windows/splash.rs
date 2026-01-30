@@ -16,9 +16,11 @@ use windows::Win32::Graphics::Dwm::DwmExtendFrameIntoClientArea;
 use windows::Win32::UI::Controls::MARGINS;
 
 // GDI imports for CreateDIBSection fallback
+use windows::Win32::Foundation::POINT as WinPOINT;
 use windows::Win32::Graphics::Gdi::{
-    CreateDIBSection, GetDC, GetDeviceCaps, GetStockObject, ReleaseDC, RoundRect, BITMAPINFO, BITMAPINFOHEADER, DIB_RGB_COLORS,
-    HDC as WinHDC, LOGPIXELSY, NULL_PEN,
+    BeginPath, CreateDIBSection, EndPath, FillPath, GetDC, GetDeviceCaps, GetStockObject, LineTo, MoveToEx, PolyBezierTo, ReleaseDC,
+    RoundRect, SetBrushOrgEx, SetStretchBltMode, StretchBlt, BITMAPINFO, BITMAPINFOHEADER, DIB_RGB_COLORS, HALFTONE, HDC as WinHDC,
+    LOGPIXELSY, NULL_PEN, SRCCOPY,
 };
 use windows::Win32::UI::WindowsAndMessaging::{SystemParametersInfoW, NONCLIENTMETRICSW, SPI_GETNONCLIENTMETRICS};
 
@@ -74,6 +76,8 @@ pub struct SplashWindow {
     logo_hbmp: Rc<RefCell<Option<w::HBITMAP>>>,
     title_font: Rc<RefCell<Option<w::HFONT>>>,
     status_font: Rc<RefCell<Option<w::HFONT>>>,
+    dpi_scale: Rc<RefCell<f32>>,
+    is_close_hovered: Rc<RefCell<bool>>,
 }
 
 impl SplashWindow {
@@ -83,12 +87,12 @@ impl SplashWindow {
 
         let wnd = gui::WindowMain::new(gui::WindowMainOpts {
             class_icon: gui::Icon::Idi(co::IDI::APPLICATION),
-            class_cursor: gui::Cursor::Idc(co::IDC::ARROW),
             class_style: co::CS::HREDRAW | co::CS::VREDRAW,
             class_name: "VelopackModernSplashWindow".to_owned(),
             title: title.clone(),
             size: (w as u32, h as u32),
-            ex_style: co::WS_EX::APPWINDOW,
+            // WS_EX_TOOLWINDOW hides it from the taskbar and Alt-Tab
+            ex_style: co::WS_EX::TOOLWINDOW | co::WS_EX::TOPMOST,
             style: co::WS::POPUP | co::WS::VISIBLE | co::WS::THICKFRAME,
             ..Default::default()
         });
@@ -126,9 +130,23 @@ impl SplashWindow {
         let logo_hbmp = Rc::new(RefCell::new(None));
         let title_font = Rc::new(RefCell::new(None));
         let status_font = Rc::new(RefCell::new(None));
+        let dpi_scale = Rc::new(RefCell::new(1.0));
+        let is_close_hovered = Rc::new(RefCell::new(false));
 
-        let mut new_self =
-            Self { wnd, rx, target_progress, visual_progress, title, status_text, logo_data, logo_hbmp, title_font, status_font };
+        let mut new_self = Self {
+            wnd,
+            rx,
+            target_progress,
+            visual_progress,
+            title,
+            status_text,
+            logo_data,
+            logo_hbmp,
+            title_font,
+            status_font,
+            dpi_scale,
+            is_close_hovered,
+        };
         new_self.events();
         Ok(new_self)
     }
@@ -148,6 +166,7 @@ impl SplashWindow {
             let raw_hwnd = self2.wnd.hwnd().ptr();
             let win_hwnd = WinHWND(raw_hwnd);
             let scale = get_dpi_scale(win_hwnd);
+            *self2.dpi_scale.borrow_mut() = scale;
 
             let w_val = (300.0 * scale) as i32;
             let h_val = (340.0 * scale) as i32;
@@ -167,11 +186,30 @@ impl SplashWindow {
                 let _ = DwmExtendFrameIntoClientArea(win_hwnd, &margins);
             }
 
-            self2.wnd.hwnd().SetTimer(TMR_PROGRESS, 16, None)?;
+            self2.wnd.hwnd().SetTimer(TMR_PROGRESS, 50, None)?;
             Ok(0)
         });
 
-        self.wnd.on().wm_nc_hit_test(|_m| Ok(co::HT::CAPTION));
+        let self2 = self.clone();
+        self.wnd.on().wm_nc_hit_test(move |p| {
+            let mut pt = p.cursor_pos;
+            self2.wnd.hwnd().ScreenToClient(&mut pt)?;
+
+            let scale = *self2.dpi_scale.borrow();
+
+            let hwnd = self2.wnd.hwnd();
+            let rect = hwnd.GetClientRect()?;
+            let w = rect.right - rect.left;
+
+            let close_size = (32.0 * scale) as i32;
+            let close_rect = w::RECT { left: w - close_size, top: 0, right: w, bottom: close_size };
+
+            if pt.x >= close_rect.left && pt.x <= close_rect.right && pt.y >= close_rect.top && pt.y <= close_rect.bottom {
+                Ok(co::HT::CLIENT)
+            } else {
+                Ok(co::HT::CAPTION)
+            }
+        });
 
         self.wnd.on().wm_nc_calc_size(|_p| Ok(co::WVR::REDRAW));
 
@@ -225,13 +263,13 @@ impl SplashWindow {
             let bg_brush = w::HBRUSH::CreateSolidBrush(w::COLORREF::new(30, 30, 30))?;
             hdc_mem.FillRect(rect, bg_brush.deref())?;
 
-            let raw_hwnd = self2.wnd.hwnd().ptr();
-            let win_hwnd = WinHWND(raw_hwnd);
-            let scale = get_dpi_scale(win_hwnd);
+            let scale = *self2.dpi_scale.borrow();
+            // Recalculate if needed (optional, but keep it simple for now)
+            // let scale = get_dpi_scale(win_hwnd);
 
             // 2. Logo (Centered, Top Padding)
             let logo_y = (50.0 * scale) as i32;
-            let logo_display_size = (64.0 * scale) as i32; // Display at 64x64 * scale
+            let logo_display_size = (86.0 * scale) as i32; // Display at 64x64 * scale
 
             if let Some((lw, lh, data)) = self2.logo_data.as_ref() {
                 // Initialize HBITMAP if needed
@@ -362,46 +400,234 @@ impl SplashWindow {
                 let _guard = hdc_mem.SelectObject(font)?;
                 hdc_mem.DrawText(&self2.status_text.borrow(), &status_rc, co::DT::CENTER | co::DT::SINGLELINE | co::DT::NOPREFIX)?;
             }
-            // 4. Progress Bar (Rounded, Padding from Bottom)
+            // 4. Progress Bar (Rounded, Padding from Bottom) - Super-Sampled for Anti-Aliasing
             let progress = (*self2.visual_progress.borrow() / 100.0).min(1.0).max(0.0);
-            let ph = (6.0 * scale) as i32; // Height 6px
+            let ph = (10.0 * scale) as i32; // Height 10px
             let padding_x = (30.0 * scale) as i32;
             let padding_bottom = (30.0 * scale) as i32;
 
             let py = h - padding_bottom - ph;
             let bar_w = w - (padding_x * 2);
+            let rounded_r = (10.0 * scale) as i32;
 
-            let rounded_r = (3.0 * scale) as i32;
+            // Super-sampling factor (4x)
+            let ss_factor = 4;
+            let ss_w = bar_w * ss_factor;
+            let ss_h = ph * ss_factor;
+            let ss_r = rounded_r * ss_factor;
 
-            // Use NULL_PEN to ensure no border
-            let null_pen = unsafe {
-                let ptr = GetStockObject(NULL_PEN);
-                w::HPEN::from_ptr(ptr.0 as *mut _)
-            };
-            let _pen_guard = hdc_mem.SelectObject(&null_pen)?;
+            // Create High-Res DC and Bitmap
+            if let Ok(hdc_ss) = hdc.CreateCompatibleDC() {
+                if let Ok(bmp_ss) = hdc.CreateCompatibleBitmap(ss_w, ss_h) {
+                    if let Ok(_old_ss) = hdc_ss.SelectObject(bmp_ss.deref()) {
+                        // Fill Background (same as main bg)
+                        let bg_brush_ss = w::HBRUSH::CreateSolidBrush(w::COLORREF::new(30, 30, 30))?;
+                        let _ = hdc_ss.FillRect(w::RECT { left: 0, top: 0, right: ss_w, bottom: ss_h }, bg_brush_ss.deref());
 
-            // Track (Darker Gray)
-            let track_brush = w::HBRUSH::CreateSolidBrush(w::COLORREF::new(50, 50, 50))?;
-            let _brush_guard = hdc_mem.SelectObject(track_brush.deref())?;
+                        // Use NULL_PEN
+                        let null_pen = unsafe {
+                            let ptr = GetStockObject(NULL_PEN);
+                            w::HPEN::from_ptr(ptr.0 as *mut _)
+                        };
+                        let _pen_guard = hdc_ss.SelectObject(&null_pen);
 
-            unsafe {
-                let _ = RoundRect(WinHDC(hdc_mem.ptr()), padding_x, py, padding_x + bar_w, py + ph, rounded_r, rounded_r);
+                        // Draw Track (Darker Gray)
+                        let track_brush = w::HBRUSH::CreateSolidBrush(w::COLORREF::new(50, 50, 50))?;
+                        let _brush_guard = hdc_ss.SelectObject(track_brush.deref());
+
+                        unsafe {
+                            let _ = RoundRect(WinHDC(hdc_ss.ptr()), 0, 0, ss_w, ss_h, ss_r, ss_r);
+                        }
+
+                        // Draw Fill (White/Accent)
+                        if progress > 0.0 {
+                            let ss_ind_w = (ss_w as f32 * progress) as i32;
+                            if ss_ind_w > 0 {
+                                let ind_brush = w::HBRUSH::CreateSolidBrush(w::COLORREF::new(255, 255, 255))?;
+                                let _brush_guard2 = hdc_ss.SelectObject(ind_brush.deref());
+                                unsafe {
+                                    let _ = RoundRect(WinHDC(hdc_ss.ptr()), 0, 0, ss_ind_w, ss_h, ss_r, ss_r);
+                                }
+                            }
+                        }
+
+                        // Downscale with HALFTONE
+                        unsafe {
+                            let _ = SetStretchBltMode(WinHDC(hdc_mem.ptr()), HALFTONE);
+                            let _ = SetBrushOrgEx(WinHDC(hdc_mem.ptr()), 0, 0, None); // Align pattern
+                            let _ = StretchBlt(
+                                WinHDC(hdc_mem.ptr()),
+                                padding_x,
+                                py,
+                                bar_w,
+                                ph,
+                                Some(WinHDC(hdc_ss.ptr())),
+                                0,
+                                0,
+                                ss_w,
+                                ss_h,
+                                SRCCOPY,
+                            );
+                        }
+                    }
+                }
             }
 
-            // Fill (White/Accent)
-            if progress > 0.0 {
-                let ind_w = (bar_w as f32 * progress) as i32;
-                if ind_w > 0 {
-                    let ind_brush = w::HBRUSH::CreateSolidBrush(w::COLORREF::new(255, 255, 255))?;
-                    let _brush_guard2 = hdc_mem.SelectObject(ind_brush.deref())?;
-                    unsafe {
-                        // Overdraw the fill
-                        let _ = RoundRect(WinHDC(hdc_mem.ptr()), padding_x, py, padding_x + ind_w, py + ph, rounded_r, rounded_r);
+            // 5. Close Button (Top Right) - Graphical "X" from SVG
+            let scale = *self2.dpi_scale.borrow();
+            let close_size = (32.0 * scale) as i32;
+            let close_rect = w::RECT { left: w - close_size, top: 0, right: w, bottom: close_size };
+            let is_hovered = *self2.is_close_hovered.borrow();
+
+            if is_hovered {
+                let hover_brush = w::HBRUSH::CreateSolidBrush(w::COLORREF::new(232, 17, 35))?; // Windows close red
+                hdc_mem.FillRect(close_rect, hover_brush.deref())?;
+            }
+
+            // Draw SVG-based "X" centered in close_rect
+            let icon_display_size = (10.0 * scale) as i32;
+            let icon_x = close_rect.left + (close_size - icon_display_size) / 2;
+            let icon_y = close_rect.top + (close_size - icon_display_size) / 2;
+
+            // Super-sampling factor (4x) for anti-aliasing
+            let ss_factor = 4;
+            let ss_size = icon_display_size * ss_factor;
+
+            if let Ok(hdc_ss) = hdc.CreateCompatibleDC() {
+                if let Ok(bmp_ss) = hdc.CreateCompatibleBitmap(ss_size, ss_size) {
+                    if let Ok(_old_ss) = hdc_ss.SelectObject(bmp_ss.deref()) {
+                        // Fill Background (same as button bg)
+                        let bg_color = if is_hovered { w::COLORREF::new(232, 17, 35) } else { w::COLORREF::new(30, 30, 30) };
+                        let bg_brush_ss = w::HBRUSH::CreateSolidBrush(bg_color).unwrap();
+                        let _ = hdc_ss.FillRect(w::RECT { left: 0, top: 0, right: ss_size, bottom: ss_size }, bg_brush_ss.deref());
+
+                        let win_hdc_ss = WinHDC(hdc_ss.ptr());
+                        let draw_ss = |v: f32| (((v - 3.0) / 10.0) * ss_size as f32) as i32;
+                        let p_ss = |x: f32, y: f32| WinPOINT { x: draw_ss(x), y: draw_ss(y) };
+
+                        unsafe {
+                            let _ = BeginPath(win_hdc_ss);
+                            let _ = MoveToEx(win_hdc_ss, draw_ss(8.0), draw_ss(8.70801), None);
+                            let _ = LineTo(win_hdc_ss, draw_ss(3.85449), draw_ss(12.8535));
+                            let _ = PolyBezierTo(win_hdc_ss, &[p_ss(3.75684, 12.9512), p_ss(3.63965, 13.0), p_ss(3.50293, 13.0)]);
+                            let _ = PolyBezierTo(win_hdc_ss, &[p_ss(3.3597, 13.0), p_ss(3.23926, 12.9528), p_ss(3.1416, 12.8584)]);
+                            let _ = PolyBezierTo(win_hdc_ss, &[p_ss(3.0472, 12.7607), p_ss(3.0, 12.6403), p_ss(3.0, 12.4971)]);
+                            let _ = PolyBezierTo(win_hdc_ss, &[p_ss(3.0, 12.3604), p_ss(3.04883, 12.2432), p_ss(3.14648, 12.1455)]);
+                            let _ = LineTo(win_hdc_ss, draw_ss(7.29199), draw_ss(8.0));
+                            let _ = LineTo(win_hdc_ss, draw_ss(3.14648), draw_ss(3.85449));
+                            let _ = PolyBezierTo(win_hdc_ss, &[p_ss(3.04883, 3.75684), p_ss(3.0, 3.63802), p_ss(3.0, 3.49805)]);
+                            let _ = PolyBezierTo(win_hdc_ss, &[p_ss(3.0, 3.42969), p_ss(3.01302, 3.36458), p_ss(3.03906, 3.30273)]);
+                            let _ = PolyBezierTo(win_hdc_ss, &[p_ss(3.0651, 3.24089), p_ss(3.10091, 3.1888), p_ss(3.14648, 3.14648)]);
+                            let _ = PolyBezierTo(win_hdc_ss, &[p_ss(3.19206, 3.10091), p_ss(3.24577, 3.0651), p_ss(3.30762, 3.03906)]);
+                            let _ = PolyBezierTo(win_hdc_ss, &[p_ss(3.36947, 3.01302), p_ss(3.43457, 3.0), p_ss(3.50293, 3.0)]);
+                            let _ = PolyBezierTo(win_hdc_ss, &[p_ss(3.63965, 3.0), p_ss(3.75684, 3.04883), p_ss(3.85449, 3.14648)]);
+                            let _ = LineTo(win_hdc_ss, draw_ss(8.0), draw_ss(7.29199));
+                            let _ = LineTo(win_hdc_ss, draw_ss(12.1455), draw_ss(3.14648));
+                            let _ = PolyBezierTo(win_hdc_ss, &[p_ss(12.2432, 3.04883), p_ss(12.362, 3.0), p_ss(12.502, 3.0)]);
+                            let _ = PolyBezierTo(win_hdc_ss, &[p_ss(12.5703, 3.0), p_ss(12.6338, 3.01302), p_ss(12.6924, 3.03906)]);
+                            let _ = PolyBezierTo(win_hdc_ss, &[p_ss(12.7542, 3.0651), p_ss(12.8079, 3.10091), p_ss(12.8535, 3.14648)]);
+                            let _ = PolyBezierTo(win_hdc_ss, &[p_ss(12.8991, 3.19206), p_ss(12.9349, 3.24577), p_ss(12.9609, 3.30762)]);
+                            let _ = PolyBezierTo(win_hdc_ss, &[p_ss(12.987, 3.36621), p_ss(13.0, 3.42969), p_ss(13.0, 3.49805)]);
+                            let _ = PolyBezierTo(win_hdc_ss, &[p_ss(13.0, 3.63802), p_ss(12.9512, 3.75684), p_ss(12.8535, 3.85449)]);
+                            let _ = LineTo(win_hdc_ss, draw_ss(8.70801), draw_ss(8.0));
+                            let _ = LineTo(win_hdc_ss, draw_ss(12.8535), draw_ss(12.1455));
+                            let _ = PolyBezierTo(win_hdc_ss, &[p_ss(12.9512, 12.2432), p_ss(13.0, 12.3604), p_ss(13.0, 12.4971)]);
+                            let _ = PolyBezierTo(win_hdc_ss, &[p_ss(13.0, 12.5654), p_ss(12.987, 12.6305), p_ss(12.9609, 12.6924)]);
+                            let _ = PolyBezierTo(win_hdc_ss, &[p_ss(12.9349, 12.7542), p_ss(12.8991, 12.8079), p_ss(12.8535, 12.8535)]);
+                            let _ = PolyBezierTo(win_hdc_ss, &[p_ss(12.8112, 12.8991), p_ss(12.7591, 12.9349), p_ss(12.6973, 12.9609)]);
+                            let _ = PolyBezierTo(win_hdc_ss, &[p_ss(12.6354, 12.987), p_ss(12.5703, 13.0), p_ss(12.502, 13.0)]);
+                            let _ = PolyBezierTo(win_hdc_ss, &[p_ss(12.362, 13.0), p_ss(12.2432, 12.9512), p_ss(12.1455, 12.8535)]);
+                            let _ = LineTo(win_hdc_ss, draw_ss(8.0), draw_ss(8.70801));
+                            let _ = EndPath(win_hdc_ss);
+
+                            let brush = w::HBRUSH::CreateSolidBrush(w::COLORREF::new(255, 255, 255)).unwrap();
+                            let _old_brush = hdc_ss.SelectObject(brush.deref()).unwrap();
+                            let _ = FillPath(win_hdc_ss);
+
+                            // Downscale with HALFTONE
+                            let _ = SetStretchBltMode(WinHDC(hdc_mem.ptr()), HALFTONE);
+                            let _ = SetBrushOrgEx(WinHDC(hdc_mem.ptr()), 0, 0, None);
+                            let _ = StretchBlt(
+                                WinHDC(hdc_mem.ptr()),
+                                icon_x,
+                                icon_y,
+                                icon_display_size,
+                                icon_display_size,
+                                Some(win_hdc_ss),
+                                0,
+                                0,
+                                ss_size,
+                                ss_size,
+                                SRCCOPY,
+                            );
+                        }
                     }
                 }
             }
 
             hdc.BitBlt(w::POINT::default(), w::SIZE { cx: w, cy: h }, &hdc_mem, w::POINT::default(), co::ROP::SRCCOPY)?;
+            Ok(())
+        });
+
+        // Handle Close Button Click
+        let self2 = self.clone();
+        self.wnd.on().wm_l_button_up(move |p| {
+            let scale = *self2.dpi_scale.borrow();
+
+            let hwnd = self2.wnd.hwnd();
+            let rect = hwnd.GetClientRect()?;
+            let w = rect.right - rect.left;
+
+            let close_size = (32.0 * scale) as i32;
+            let close_rect = w::RECT { left: w - close_size, top: 0, right: w, bottom: close_size };
+
+            let pt = p.coords;
+            if pt.x >= close_rect.left && pt.x <= close_rect.right && pt.y >= close_rect.top && pt.y <= close_rect.bottom {
+                self2.wnd.hwnd().SendMessage(w::msg::wm::Close {});
+            }
+            Ok(())
+        });
+
+        let self2 = self.clone();
+        self.wnd.on().wm_mouse_move(move |p| {
+            let scale = *self2.dpi_scale.borrow();
+            let rect = self2.wnd.hwnd().GetClientRect()?;
+            let w = rect.right - rect.left;
+
+            let close_size = (32.0 * scale) as i32;
+            let close_rect = w::RECT { left: w - close_size, top: 0, right: w, bottom: close_size };
+
+            let pt = p.coords;
+            let is_in = pt.x >= close_rect.left && pt.x <= close_rect.right && pt.y >= close_rect.top && pt.y <= close_rect.bottom;
+
+            let mut hovered = self2.is_close_hovered.borrow_mut();
+            if *hovered != is_in {
+                *hovered = is_in;
+                self2.wnd.hwnd().InvalidateRect(Some(&close_rect), false)?;
+            }
+
+            // Track for WM_MOUSELEAVE
+            let mut tme = w::TRACKMOUSEEVENT::default();
+            tme.dwFlags = co::TME::LEAVE;
+            tme.hwndTrack = unsafe { w::HWND::from_ptr(self2.wnd.hwnd().ptr()) };
+            let _ = w::TrackMouseEvent(&mut tme);
+
+            Ok(())
+        });
+
+        let self2 = self.clone();
+        self.wnd.on().wm_mouse_leave(move || {
+            let mut hovered = self2.is_close_hovered.borrow_mut();
+            if *hovered {
+                *hovered = false;
+                let scale = *self2.dpi_scale.borrow();
+                let hwnd = self2.wnd.hwnd();
+                let rect = hwnd.GetClientRect()?;
+                let w = rect.right - rect.left;
+                let close_size = (32.0 * scale) as i32;
+                let close_rect = w::RECT { left: w - close_size, top: 0, right: w, bottom: close_size };
+                hwnd.InvalidateRect(Some(&close_rect), false)?;
+            }
             Ok(())
         });
     }
