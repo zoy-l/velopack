@@ -2262,6 +2262,7 @@ name = "velopack_bins"
 version = "0.0.0-local"
 dependencies = [
  "anyhow",
+ "base64",
  "bitflags 2.9.1",
  "chrono",
  "clap",

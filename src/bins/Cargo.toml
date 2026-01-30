@@ -38,6 +38,11 @@ path = "src/update.rs"
 name = "testapp"
 path = "src/testapp.rs"
 
+[[bin]]
+name = "windows_dialog_test"
+path = "src/windows_dialog_test.rs"
+required-features = ["windows"]
+
 [dependencies]
 velopack.workspace = true
 anyhow.workspace = true
@@ -69,6 +74,7 @@ sha1_smol.workspace = true
 rayon.workspace = true
 progress-streams.workspace = true
 flate2.workspace = true
+base64 = "0.22.1"
 
 [target.'cfg(target_os="linux")'.dependencies]
 waitpid-any.workspace = true
@@ -109,6 +115,9 @@ windows = { workspace = true, features = [
     "Win32_UI_WindowsAndMessaging",
     "Win32_System_ApplicationInstallationAndServicing",
     "Win32_System_Kernel",
+    "Win32_Graphics_Dwm",
+    "Win32_Graphics_Gdi",
+    "Win32_UI_Controls",
     "Wdk",
     "Wdk_System",
     "Wdk_System_Threading",
