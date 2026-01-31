@@ -8,6 +8,9 @@ use velopack_bins::shared::dialogs;
 #[derive(Parser)]
 #[command(name = "windows_dialog_test", about = "A tool to test Velopack Windows dialogs")]
 struct Cli {
+    /// Force theme: "light" or "dark"
+    #[arg(long, value_parser = ["light", "dark"])]
+    theme: Option<String>,
     #[command(subcommand)]
     command: Commands,
 }
@@ -79,6 +82,8 @@ fn create_mock_manifest(version: &str) -> Manifest {
 
 fn main() -> Result<()> {
     let cli = Cli::parse();
+    let _ = dialogs::set_theme_override_from_str(cli.theme.as_deref());
+    let _ = velopack_bins::windows::splash::set_theme_override_from_str(cli.theme.as_deref());
 
     match cli.command {
         Commands::Restart => {
@@ -108,7 +113,7 @@ fn main() -> Result<()> {
         Commands::Repair { version, path } => {
             let m = create_mock_manifest(&version);
             let root = path.unwrap_or_else(|| std::env::current_dir().unwrap());
-            let result = dialogs::show_overwrite_repair_dialog(&m, &root, true);
+            let result = dialogs::show_overwrite_repair_dialog(&m, &root);
             println!("Result: {}", result);
         }
         Commands::Progress { content } => {

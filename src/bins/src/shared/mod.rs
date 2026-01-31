@@ -30,6 +30,11 @@ mod util_windows;
 #[cfg(target_os = "windows")]
 pub use util_windows::*;
 
+#[cfg(target_os = "windows")]
+pub(crate) mod windows_ui;
+#[cfg(target_os = "windows")]
+pub use windows_ui::*;
+
 #[cfg(target_os = "macos")]
 mod util_osx;
 #[cfg(target_os = "macos")]

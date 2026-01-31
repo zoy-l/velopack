@@ -16,6 +16,7 @@ fn main() {
     #[cfg(target_os = "windows")]
     winres::WindowsResource::new()
         .set_manifest_file("app.manifest")
+        .set_icon("verse.ico")
         .set_version_info(winres::VersionInfo::PRODUCTVERSION, ver)
         .set_version_info(winres::VersionInfo::FILEVERSION, ver)
         .set("CompanyName", "Velopack")

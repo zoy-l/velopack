@@ -37,7 +37,7 @@ pub fn install(pkg: &mut BundleZip, install_to: Option<&PathBuf>, start_args: Op
     }
 
     info!("Determining install directory...");
-    let (root_path, root_is_default) = if install_to.is_some() {
+    let (root_path, _root_is_default) = if install_to.is_some() {
         (install_to.unwrap().clone(), false)
     } else {
         let appdata = windows::known_path::get_local_app_data()?;
@@ -89,7 +89,7 @@ pub fn install(pkg: &mut BundleZip, install_to: Option<&PathBuf>, start_args: Op
     // does the target directory exist and have files? (eg. already installed)
     if !shared::is_dir_empty(&root_path) {
         // the target directory is not empty, and not dead
-        if !dialogs::show_overwrite_repair_dialog(&app, &root_path, root_is_default) {
+        if !dialogs::show_overwrite_repair_dialog(&app, &root_path) {
             // user cancelled overwrite prompt
             error!("Directory already exists, and user cancelled overwrite.");
             return Ok(());
@@ -113,7 +113,7 @@ pub fn install(pkg: &mut BundleZip, install_to: Option<&PathBuf>, start_args: Op
 
     info!("Preparing and cleaning installation directory...");
     remove_dir_all::ensure_empty_dir(&root_path)?;
-    
+
     info!("Acquiring lock...");
     let paths = create_config_from_root_dir(&root_path);
     let locator = VelopackLocator::new_with_manifest(paths, app);

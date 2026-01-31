@@ -1,6 +1,5 @@
+use crate::shared::windows_ui;
 use anyhow::{bail, Result};
-
-use image::{load_from_memory, GenericImageView};
 use std::{
     cell::RefCell,
     rc::Rc,
@@ -9,21 +8,69 @@ use std::{
 };
 use winsafe::{self as w, co, guard::DeleteObjectGuard, gui, prelude::*};
 
-// DWM imports from windows crate
-use windows::core::BOOL;
 use windows::Win32::Foundation::HWND as WinHWND;
-use windows::Win32::Graphics::Dwm::{DwmSetWindowAttribute, DWMWA_USE_IMMERSIVE_DARK_MODE};
 use windows::Win32::Graphics::GdiPlus::{
-    FillModeAlternate, GdipAddPathArc, GdipAddPathRectangle, GdipClosePathFigure, GdipCreateBitmapFromScan0, GdipCreateFromHDC,
-    GdipCreatePath, GdipCreatePen1, GdipCreateSolidFill, GdipDeleteBrush, GdipDeleteGraphics, GdipDeletePath, GdipDeletePen,
-    GdipDisposeImage, GdipDrawImageRectRectI, GdipDrawLine, GdipFillPath, GdipFillRectangle, GdipGraphicsClear, GdipSetSmoothingMode,
-    GdiplusShutdown, GdiplusStartup, GdiplusStartupInput, GpPath as GdiplusPath, SmoothingModeAntiAlias, UnitPixel,
+    FillModeAlternate, GdipCreateFromHDC, GdipCreatePath, GdipCreateSolidFill, GdipDeleteBrush, GdipDeleteGraphics, GdipDeletePath,
+    GdipFillPath, GdipFillRectangle, GdipGraphicsClear, GdipSetSmoothingMode, GdiplusShutdown, GdiplusStartup, GdiplusStartupInput,
+    GpGraphics as GdiplusGraphics, SmoothingModeAntiAlias,
 };
 
-const PIXEL_FORMAT32BPP_ARGB: i32 = 0x26200a;
+const WINDOW_WIDTH: i32 = 300;
+const WINDOW_HEIGHT: i32 = 340;
+const LOGO_SOURCE_SIZE: i32 = 256;
+const LOGO_DRAW_SIZE: f32 = 80.0;
+const LOGO_TOP: f32 = 40.0;
+const CLOSE_BTN_SIZE: f32 = 32.0;
+const CLOSE_BTN_OFFSET: f32 = 16.0;
+const PROGRESS_WIDTH: f32 = 240.0;
+const PROGRESS_HEIGHT: f32 = 6.0;
+const PROGRESS_BOTTOM_OFFSET: f32 = 50.0;
+const TITLE_Y: f32 = 140.0;
+const TITLE_H: f32 = 40.0;
+const STATUS_Y: f32 = 180.0;
+const STATUS_H: f32 = 60.0;
+const STATUS_X_MARGIN: i32 = 20;
+
+pub use windows_ui::{set_theme_override, set_theme_override_from_str, ThemeMode};
+
+struct ThemeColors {
+    background: u32,
+    title_text: w::COLORREF,
+    status_text: w::COLORREF,
+    close_hover_bg: u32,
+    close_icon: u32,
+    close_icon_hover: u32,
+    progress_bg: u32,
+    progress_fill: u32,
+}
+
+fn theme_colors(theme: ThemeMode) -> ThemeColors {
+    match theme {
+        ThemeMode::Dark => ThemeColors {
+            background: 0xFF202020,
+            title_text: w::COLORREF::new(255, 255, 255),
+            status_text: w::COLORREF::new(180, 180, 180),
+            close_hover_bg: 0x33FFFFFF,
+            close_icon: 0xFFA0A0A0,
+            close_icon_hover: 0xFFFFFFFF,
+            progress_bg: 0xFF404040,
+            progress_fill: 0xFF0078D4,
+        },
+        ThemeMode::Light => ThemeColors {
+            background: 0xFFF6F6F6,
+            title_text: w::COLORREF::new(30, 30, 30),
+            status_text: w::COLORREF::new(90, 90, 90),
+            close_hover_bg: 0x14000000,
+            close_icon: 0xFF666666,
+            close_icon_hover: 0xFF000000,
+            progress_bg: 0xFFDDDDDD,
+            progress_fill: 0xFF0078D4,
+        },
+    }
+}
 
 // GDI imports
-use windows::Win32::Graphics::Gdi::{CreateFontIndirectW, GetDC, GetDeviceCaps, ReleaseDC, LOGPIXELSY};
+use windows::Win32::Graphics::Gdi::{CreateFontIndirectW, CLEARTYPE_QUALITY};
 use windows::Win32::UI::WindowsAndMessaging::{SystemParametersInfoW, NONCLIENTMETRICSW, SPI_GETNONCLIENTMETRICS};
 
 const TMR_PROGRESS: usize = 1;
@@ -51,19 +98,51 @@ pub fn show_splash_dialog(app_name: String, _imgstream: Option<Vec<u8>>) -> Send
     show_progress_dialog(app_name, content)
 }
 
-fn get_dpi_scale(hwnd: WinHWND) -> f32 {
-    unsafe {
-        let hdc = GetDC(Some(hwnd));
-        if hdc.is_invalid() {
-            return 1.0;
-        }
-        let dpi = GetDeviceCaps(Some(hdc), LOGPIXELSY);
-        ReleaseDC(Some(hwnd), hdc);
-        if dpi > 0 {
-            dpi as f32 / 96.0
-        } else {
-            1.0
-        }
+#[derive(Clone, Copy)]
+struct SplashLayout {
+    logo_x: i32,
+    logo_y: i32,
+    logo_size: i32,
+    close_rect: w::RECT,
+    progress_x: f32,
+    progress_y: f32,
+    progress_w: f32,
+    progress_h: f32,
+    title_rect: w::RECT,
+    status_rect: w::RECT,
+}
+
+fn close_button_rect(width: i32, scale: f32) -> w::RECT {
+    let btn_size = (CLOSE_BTN_SIZE * scale) as i32;
+    let offset = (CLOSE_BTN_OFFSET * scale) as i32;
+    w::RECT { left: width - btn_size - offset, top: offset, right: width - offset, bottom: btn_size + offset }
+}
+
+fn compute_layout(width: i32, height: i32, scale: f32) -> SplashLayout {
+    let logo_size = (LOGO_DRAW_SIZE * scale) as i32;
+    let logo_x = (width - logo_size) / 2;
+    let logo_y = (LOGO_TOP * scale) as i32;
+    let close_rect = close_button_rect(width, scale);
+    let progress_w = PROGRESS_WIDTH * scale;
+    let progress_h = PROGRESS_HEIGHT * scale;
+    let progress_x = (width as f32 - progress_w) / 2.0;
+    let progress_y = height as f32 - (PROGRESS_BOTTOM_OFFSET * scale);
+    let title_y = (TITLE_Y * scale) as i32;
+    let title_h = (TITLE_H * scale) as i32;
+    let status_y = (STATUS_Y * scale) as i32;
+    let status_h = (STATUS_H * scale) as i32;
+
+    SplashLayout {
+        logo_x,
+        logo_y,
+        logo_size,
+        close_rect,
+        progress_x,
+        progress_y,
+        progress_w,
+        progress_h,
+        title_rect: w::RECT { left: 0, top: title_y, right: width, bottom: title_y + title_h },
+        status_rect: w::RECT { left: STATUS_X_MARGIN, top: status_y, right: width - STATUS_X_MARGIN, bottom: status_y + status_h },
     }
 }
 
@@ -80,6 +159,7 @@ pub struct SplashWindow {
     title_font: Rc<RefCell<Option<DeleteObjectGuard<w::HFONT>>>>,
     status_font: Rc<RefCell<Option<DeleteObjectGuard<w::HFONT>>>>,
     dpi_scale: Rc<RefCell<f32>>,
+    theme: Rc<RefCell<ThemeMode>>,
     is_close_hovered: Rc<RefCell<bool>>,
     should_close: Rc<RefCell<bool>>,
     close_delay_ticks: Rc<RefCell<i32>>,
@@ -87,45 +167,19 @@ pub struct SplashWindow {
 
 impl SplashWindow {
     pub fn new(title: String, status_text: String, rx: Receiver<i16>) -> Result<Self> {
-        let w = 300;
-        let h = 340;
-
         let wnd = gui::WindowMain::new(gui::WindowMainOpts {
-            class_icon: gui::Icon::Idi(co::IDI::APPLICATION),
+            class_icon: gui::Icon::Id(1),
             class_style: co::CS::HREDRAW | co::CS::VREDRAW | co::CS::DROPSHADOW,
             class_name: "VelopackModernSplashWindow".to_owned(),
             title: title.clone(),
-            size: (w as u32, h as u32),
-            // WS_EX_TOOLWINDOW hides it from the taskbar and Alt-Tab
-            ex_style: co::WS_EX::TOOLWINDOW | co::WS_EX::TOPMOST,
+            size: (WINDOW_WIDTH as u32, WINDOW_HEIGHT as u32),
+            // Show on taskbar
+            ex_style: co::WS_EX::APPWINDOW | co::WS_EX::TOPMOST,
             style: co::WS::POPUP,
             ..Default::default()
         });
 
-        // Load Logo from memory
-        let logo_data = {
-            match load_from_memory(IMAGE_DATA) {
-                Ok(img) => {
-                    let (_w, _h) = img.dimensions();
-                    // Resize to a larger size (256x256) to allow high-quality downscaling
-                    let target_size = 256;
-                    let resized = img.resize_exact(target_size, target_size, image::imageops::FilterType::Lanczos3);
-                    let mut bgra = Vec::with_capacity((target_size * target_size * 4) as usize);
-                    for p in resized.to_rgba8().pixels() {
-                        let a = p[3] as u32;
-                        let r = (p[0] as u32 * a) / 255;
-                        let g = (p[1] as u32 * a) / 255;
-                        let b = (p[2] as u32 * a) / 255;
-                        bgra.extend_from_slice(&[b as u8, g as u8, r as u8, p[3]]);
-                    }
-                    Some((target_size as i32, target_size as i32, bgra))
-                }
-                Err(e) => {
-                    eprintln!("Failed to load image from memory: {:?}", e);
-                    None
-                }
-            }
-        };
+        let logo_data = windows_ui::load_logo_data(LOGO_SOURCE_SIZE, IMAGE_DATA);
 
         let rx = Rc::new(rx);
         let target_progress = Rc::new(RefCell::new(0));
@@ -135,6 +189,7 @@ impl SplashWindow {
         let title_font = Rc::new(RefCell::new(None));
         let status_font = Rc::new(RefCell::new(None));
         let dpi_scale = Rc::new(RefCell::new(1.0));
+        let theme = Rc::new(RefCell::new(windows_ui::current_theme()));
         let is_close_hovered = Rc::new(RefCell::new(false));
 
         let mut new_self = Self {
@@ -148,6 +203,7 @@ impl SplashWindow {
             title_font,
             status_font,
             dpi_scale,
+            theme,
             is_close_hovered,
             should_close: Rc::new(RefCell::new(false)),
             close_delay_ticks: Rc::new(RefCell::new(20)), // 60fps 下 20 ticks 约为 320ms
@@ -181,32 +237,17 @@ impl SplashWindow {
             let raw_hwnd = self2.wnd.hwnd().ptr();
             let win_hwnd = WinHWND(raw_hwnd);
 
-            // 1. DWM Dark Mode and Corners (Do this before moving/showing)
-            unsafe {
-                let use_dark_mode = BOOL::from(true);
-                let _ = DwmSetWindowAttribute(
-                    win_hwnd,
-                    DWMWA_USE_IMMERSIVE_DARK_MODE,
-                    &use_dark_mode as *const _ as *const _,
-                    std::mem::size_of::<BOOL>() as u32,
-                );
-
-                // DWMWA_WINDOW_CORNER_PREFERENCE = 33, DWMWCP_ROUND = 2
-                let corner_preference = 2i32;
-                let _ = DwmSetWindowAttribute(
-                    win_hwnd,
-                    windows::Win32::Graphics::Dwm::DWMWINDOWATTRIBUTE(33),
-                    &corner_preference as *const _ as *const _,
-                    std::mem::size_of::<i32>() as u32,
-                );
-            }
+            // 1. DWM Dark Mode and Corners
+            let theme = windows_ui::current_theme();
+            *self2.theme.borrow_mut() = theme;
+            windows_ui::apply_window_style(win_hwnd, theme);
 
             // 2. Position and Size (Use NOREDRAW/HIDEWINDOW if needed, but here we just want it ready)
-            let scale = get_dpi_scale(win_hwnd);
+            let scale = windows_ui::get_dpi_scale(win_hwnd);
             *self2.dpi_scale.borrow_mut() = scale;
 
-            let w_val = (300.0 * scale) as i32;
-            let h_val = (340.0 * scale) as i32;
+            let w_val = (WINDOW_WIDTH as f32 * scale) as i32;
+            let h_val = (WINDOW_HEIGHT as f32 * scale) as i32;
 
             let screen_cx = w::GetSystemMetrics(co::SM::CXSCREEN);
             let screen_cy = w::GetSystemMetrics(co::SM::CYSCREEN);
@@ -223,31 +264,7 @@ impl SplashWindow {
             self2.wnd.hwnd().SetTimer(TMR_PROGRESS, 16, None)?; // ~60 FPS
 
             // 3. Initialize Fonts from System Metrics
-            unsafe {
-                let mut ncm = NONCLIENTMETRICSW { cbSize: std::mem::size_of::<NONCLIENTMETRICSW>() as u32, ..Default::default() };
-                let _ = SystemParametersInfoW(
-                    SPI_GETNONCLIENTMETRICS,
-                    ncm.cbSize,
-                    Some(&mut ncm as *mut _ as *mut _),
-                    windows::Win32::UI::WindowsAndMessaging::SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS(0),
-                );
-
-                let mut lf_title = ncm.lfMessageFont;
-                // lfHeight = -((font_size_pt * 96.0 / 72.0) * scale)
-                lf_title.lfHeight = -((20.0 * 96.0 / 72.0) * scale) as i32;
-                lf_title.lfWeight = 700; // Bold
-                let hfont_title = CreateFontIndirectW(&lf_title);
-                if !hfont_title.0.is_null() {
-                    *self2.title_font.borrow_mut() = Some(DeleteObjectGuard::new(w::HFONT::from_ptr(hfont_title.0)));
-                }
-
-                let mut lf_status = ncm.lfMessageFont;
-                lf_status.lfHeight = -((12.0 * 96.0 / 72.0) * scale) as i32;
-                let hfont_status = CreateFontIndirectW(&lf_status);
-                if !hfont_status.0.is_null() {
-                    *self2.status_font.borrow_mut() = Some(DeleteObjectGuard::new(w::HFONT::from_ptr(hfont_status.0)));
-                }
-            }
+            init_fonts(&self2, scale);
 
             // 4. Finally show and focus
             self2.wnd.hwnd().ShowWindow(co::SW::SHOW);
@@ -261,13 +278,9 @@ impl SplashWindow {
             self2.wnd.hwnd().ScreenToClient(&mut pt)?;
 
             let scale = *self2.dpi_scale.borrow();
-            let hwnd = self2.wnd.hwnd();
-            let rect = hwnd.GetClientRect()?;
+            let rect = self2.wnd.hwnd().GetClientRect()?;
             let w = rect.right - rect.left;
-
-            let btn_size = (32.0 * scale) as i32;
-            let offset = (8.0 * scale) as i32;
-            let btn_rect = w::RECT { left: w - btn_size - offset, top: offset, right: w - offset, bottom: btn_size + offset };
+            let btn_rect = close_button_rect(w, scale);
 
             if pt.x >= btn_rect.left && pt.x <= btn_rect.right && pt.y >= btn_rect.top && pt.y <= btn_rect.bottom {
                 Ok(co::HT::CLIENT)
@@ -345,145 +358,47 @@ impl SplashWindow {
             let rc = hwnd.GetClientRect()?;
             let width = rc.right - rc.left;
             let height = rc.bottom - rc.top;
+            let dpi = *self2.dpi_scale.borrow();
+            let layout = compute_layout(width, height, dpi);
 
             // Double buffering
             let hdc_mem = hdc.CreateCompatibleDC()?;
             let hbmp_mem = hdc.CreateCompatibleBitmap(width, height)?;
             let _hbmp_old = hdc_mem.SelectObject(&*hbmp_mem)?;
 
+            let colors = theme_colors(*self2.theme.borrow());
             unsafe {
                 let mut graphics = std::ptr::null_mut();
                 let _ = GdipCreateFromHDC(windows::Win32::Graphics::Gdi::HDC(hdc_mem.ptr() as _), &mut graphics);
                 let _ = GdipGraphicsClear(graphics, 0x00000000); // 清除背景，解决圆角外部“脏边角”问题
                 let _ = GdipSetSmoothingMode(graphics, SmoothingModeAntiAlias);
 
-                // 1. Draw Background (Native Simple Rect)
-                let mut bg_brush = std::ptr::null_mut();
-                let _ = GdipCreateSolidFill(0xFF202020, &mut bg_brush);
-                let _ = GdipFillRectangle(graphics, bg_brush as _, 0.0, 0.0, width as f32, height as f32);
-                let _ = GdipDeleteBrush(bg_brush as _);
-
-                let dpi = *self2.dpi_scale.borrow();
-
-                // 2. Draw Logo
-                if let Some((w_img, h_img, pixels)) = self2.logo_data.as_ref() {
-                    let mut gdip_img = std::ptr::null_mut();
-                    let _ = GdipCreateBitmapFromScan0(
-                        *w_img,
-                        *h_img,
-                        (*w_img * 4) as i32,
-                        PIXEL_FORMAT32BPP_ARGB,
-                        Some(pixels.as_ptr()),
-                        &mut gdip_img,
-                    );
-
-                    if !gdip_img.is_null() {
-                        let logo_size = (80.0 * dpi) as i32;
-                        let logo_x = (width - logo_size) / 2;
-                        let logo_y = (40.0 * dpi) as i32;
-
-                        let _ = GdipDrawImageRectRectI(
-                            graphics,
-                            gdip_img as _,
-                            logo_x,
-                            logo_y,
-                            logo_size,
-                            logo_size,
-                            0,
-                            0,
-                            *w_img,
-                            *h_img,
-                            UnitPixel,
-                            std::ptr::null_mut(),
-                            std::mem::transmute(0isize),
-                            std::ptr::null_mut(),
-                        );
-                        let _ = GdipDisposeImage(gdip_img as _);
-                    }
+                draw_background(graphics, width, height, &colors);
+                if let Some(logo_data) = self2.logo_data.as_ref() {
+                    let logo_rect = w::RECT {
+                        left: layout.logo_x,
+                        top: layout.logo_y,
+                        right: layout.logo_x + layout.logo_size,
+                        bottom: layout.logo_y + layout.logo_size,
+                    };
+                    windows_ui::draw_logo(graphics, logo_rect, logo_data, windows_ui::PIXEL_FORMAT32BPP_ARGB);
                 }
-
-                // 3. Close Button
-                let is_hover = *self2.is_close_hovered.borrow();
-                let btn_size = (32.0 * dpi) as f32;
-                let btn_x = width as f32 - btn_size - (8.0 * dpi);
-                let btn_y = 8.0 * dpi;
-
-                if is_hover {
-                    let mut btn_brush = std::ptr::null_mut();
-                    let _ = GdipCreateSolidFill(0x33FFFFFF, &mut btn_brush);
-                    let mut path_btn = std::ptr::null_mut();
-                    let _ = GdipCreatePath(FillModeAlternate, &mut path_btn);
-                    add_round_rect(path_btn, btn_x, btn_y, btn_size, btn_size, 4.0 * dpi);
-                    let _ = GdipFillPath(graphics, btn_brush as _, path_btn);
-                    let _ = GdipDeletePath(path_btn);
-                    let _ = GdipDeleteBrush(btn_brush as _);
-                }
-
-                let mut x_pen = std::ptr::null_mut();
-                let _ = GdipCreatePen1(if is_hover { 0xFFFFFFFF } else { 0xFFA0A0A0 }, 1.5 * dpi, UnitPixel, &mut x_pen);
-                let pad = btn_size * 0.35;
-                let _ = GdipDrawLine(graphics, x_pen as _, btn_x + pad, btn_y + pad, btn_x + btn_size - pad, btn_y + btn_size - pad);
-                let _ = GdipDrawLine(graphics, x_pen as _, btn_x + btn_size - pad, btn_y + pad, btn_x + pad, btn_y + btn_size - pad);
-                let _ = GdipDeletePen(x_pen as _);
-
-                // 4. Progress Bar (Rounded)
-                let pb_w = (240.0 * dpi) as f32;
-                let pb_h = (6.0 * dpi) as f32;
-                let pb_x = (width as f32 - pb_w) / 2.0;
-                let pb_y = height as f32 - (50.0 * dpi);
-                let radius_pb = pb_h / 2.0;
-
-                let mut pb_bg_brush = std::ptr::null_mut();
-                let _ = GdipCreateSolidFill(0xFF404040, &mut pb_bg_brush);
-                let mut path_pb_bg = std::ptr::null_mut();
-                let _ = GdipCreatePath(FillModeAlternate, &mut path_pb_bg);
-                add_round_rect(path_pb_bg, pb_x, pb_y, pb_w, pb_h, radius_pb);
-                let _ = GdipFillPath(graphics, pb_bg_brush as _, path_pb_bg);
-                let _ = GdipDeletePath(path_pb_bg);
-                let _ = GdipDeleteBrush(pb_bg_brush as _);
-
-                let visual_p = *self2.visual_progress.borrow();
-                if visual_p > 0.0 {
-                    let fill_w = (pb_w * (visual_p / 100.0)).max(radius_pb * 2.0);
-                    let mut pb_fill_brush = std::ptr::null_mut();
-                    let _ = GdipCreateSolidFill(0xFF0078D4, &mut pb_fill_brush);
-                    let mut path_pb_fill = std::ptr::null_mut();
-                    let _ = GdipCreatePath(FillModeAlternate, &mut path_pb_fill);
-                    add_round_rect(path_pb_fill, pb_x, pb_y, fill_w, pb_h, radius_pb);
-                    let _ = GdipFillPath(graphics, pb_fill_brush as _, path_pb_fill);
-                    let _ = GdipDeletePath(path_pb_fill);
-                    let _ = GdipDeleteBrush(pb_fill_brush as _);
-                }
-
+                windows_ui::draw_close_button(
+                    graphics,
+                    layout.close_rect,
+                    *self2.dpi_scale.borrow(),
+                    *self2.is_close_hovered.borrow(),
+                    colors.close_hover_bg,
+                    colors.close_icon,
+                    colors.close_icon_hover,
+                    4.0,
+                    0.35,
+                );
+                draw_progress_bar(graphics, &self2, layout, &colors);
                 let _ = GdipDeleteGraphics(graphics);
-
-                // 4. Draw Text (GDI with System Font)
-                let title_y = (140.0 * dpi) as i32;
-                let title_h = (40.0 * dpi) as i32;
-                if let Some(font) = self2.title_font.borrow().as_ref() {
-                    let _old_font = hdc_mem.SelectObject(&**font)?;
-                    let _ = hdc_mem.SetTextColor(w::COLORREF::new(255, 255, 255));
-                    let _ = hdc_mem.SetBkMode(co::BKMODE::TRANSPARENT);
-                    hdc_mem.DrawText(
-                        &self2.title,
-                        &w::RECT { left: 0, top: title_y, right: width, bottom: title_y + title_h },
-                        co::DT::CENTER | co::DT::SINGLELINE | co::DT::VCENTER,
-                    )?;
-                }
-
-                let status_y = (180.0 * dpi) as i32;
-                let status_h = (60.0 * dpi) as i32;
-                if let Some(font) = self2.status_font.borrow().as_ref() {
-                    let _old_font = hdc_mem.SelectObject(&**font)?;
-                    let _ = hdc_mem.SetTextColor(w::COLORREF::new(180, 180, 180));
-                    let status = self2.status_text.borrow();
-                    hdc_mem.DrawText(
-                        &status,
-                        &w::RECT { left: 20, top: status_y, right: width - 20, bottom: status_y + status_h },
-                        co::DT::CENTER | co::DT::WORDBREAK,
-                    )?;
-                }
             }
+
+            draw_text(&self2, &hdc_mem, layout, &colors)?;
 
             hdc.BitBlt(w::POINT::new(0, 0), w::SIZE::new(width, height), &hdc_mem, w::POINT::new(0, 0), co::ROP::SRCCOPY)?;
             Ok(())
@@ -497,10 +412,7 @@ impl SplashWindow {
             let hwnd = self2.wnd.hwnd();
             let rect = hwnd.GetClientRect()?;
             let w = rect.right - rect.left;
-
-            let btn_size = (32.0 * scale) as i32;
-            let offset = (8.0 * scale) as i32;
-            let btn_rect = w::RECT { left: w - btn_size - offset, top: offset, right: w - offset, bottom: btn_size + offset };
+            let btn_rect = close_button_rect(w, scale);
 
             let pt = p.coords;
             if pt.x >= btn_rect.left && pt.x <= btn_rect.right && pt.y >= btn_rect.top && pt.y <= btn_rect.bottom {
@@ -514,10 +426,7 @@ impl SplashWindow {
             let scale = *self2.dpi_scale.borrow();
             let rect = self2.wnd.hwnd().GetClientRect()?;
             let w = rect.right - rect.left;
-
-            let btn_size = (32.0 * scale) as i32;
-            let offset = (8.0 * scale) as i32;
-            let btn_rect = w::RECT { left: w - btn_size - offset, top: offset, right: w - offset, bottom: btn_size + offset };
+            let btn_rect = close_button_rect(w, scale);
 
             let pt = p.coords;
             let is_in = pt.x >= btn_rect.left && pt.x <= btn_rect.right && pt.y >= btn_rect.top && pt.y <= btn_rect.bottom;
@@ -550,10 +459,7 @@ impl SplashWindow {
                 let hwnd = self2.wnd.hwnd();
                 let rect = hwnd.GetClientRect()?;
                 let width = rect.right - rect.left;
-
-                let btn_size = (32.0 * scale) as i32;
-                let offset = (8.0 * scale) as i32;
-                let btn_rect = w::RECT { left: width - btn_size - offset, top: offset, right: width - offset, bottom: btn_size + offset };
+                let btn_rect = close_button_rect(width, scale);
                 hwnd.InvalidateRect(Some(&btn_rect), false)?;
             }
             Ok(())
@@ -561,16 +467,93 @@ impl SplashWindow {
     }
 }
 
-pub unsafe fn add_round_rect(path: *mut GdiplusPath, x: f32, y: f32, w: f32, h: f32, r: f32) {
-    let r = r.min(w / 2.0).min(h / 2.0);
-    if r <= 0.0 {
-        let _ = GdipAddPathRectangle(path, x, y, w, h);
-        return;
+fn init_fonts(window: &SplashWindow, scale: f32) {
+    unsafe {
+        let mut ncm = NONCLIENTMETRICSW { cbSize: std::mem::size_of::<NONCLIENTMETRICSW>() as u32, ..Default::default() };
+        let _ = SystemParametersInfoW(
+            SPI_GETNONCLIENTMETRICS,
+            ncm.cbSize,
+            Some(&mut ncm as *mut _ as *mut _),
+            windows::Win32::UI::WindowsAndMessaging::SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS(0),
+        );
+
+        let mut lf_title = ncm.lfMessageFont;
+        // lfHeight = -((font_size_pt * 96.0 / 72.0) * scale)
+        lf_title.lfHeight = -((20.0 * 96.0 / 72.0) * scale) as i32;
+        lf_title.lfWeight = 700; // Bold
+        lf_title.lfQuality = CLEARTYPE_QUALITY;
+        let hfont_title = CreateFontIndirectW(&lf_title);
+        if !hfont_title.0.is_null() {
+            *window.title_font.borrow_mut() = Some(DeleteObjectGuard::new(w::HFONT::from_ptr(hfont_title.0)));
+        }
+
+        let mut lf_status = ncm.lfMessageFont;
+        lf_status.lfHeight = -((12.0 * 96.0 / 72.0) * scale) as i32;
+        lf_status.lfQuality = CLEARTYPE_QUALITY;
+        let hfont_status = CreateFontIndirectW(&lf_status);
+        if !hfont_status.0.is_null() {
+            *window.status_font.borrow_mut() = Some(DeleteObjectGuard::new(w::HFONT::from_ptr(hfont_status.0)));
+        }
     }
-    let d = r * 2.0;
-    let _ = GdipAddPathArc(path, x, y, d, d, 180.0, 90.0);
-    let _ = GdipAddPathArc(path, x + w - d, y, d, d, 270.0, 90.0);
-    let _ = GdipAddPathArc(path, x + w - d, y + h - d, d, d, 0.0, 90.0);
-    let _ = GdipAddPathArc(path, x, y + h - d, d, d, 90.0, 90.0);
-    let _ = GdipClosePathFigure(path);
+}
+
+unsafe fn draw_background(graphics: *mut GdiplusGraphics, width: i32, height: i32, colors: &ThemeColors) {
+    let mut bg_brush = std::ptr::null_mut();
+    let _ = GdipCreateSolidFill(colors.background, &mut bg_brush);
+    let _ = GdipFillRectangle(graphics, bg_brush as _, 0.0, 0.0, width as f32, height as f32);
+    let _ = GdipDeleteBrush(bg_brush as _);
+}
+
+unsafe fn draw_progress_bar(graphics: *mut GdiplusGraphics, window: &SplashWindow, layout: SplashLayout, colors: &ThemeColors) {
+    let radius_pb = layout.progress_h / 2.0;
+
+    let mut pb_bg_brush = std::ptr::null_mut();
+    let _ = GdipCreateSolidFill(colors.progress_bg, &mut pb_bg_brush);
+    let mut path_pb_bg = std::ptr::null_mut();
+    let _ = GdipCreatePath(FillModeAlternate, &mut path_pb_bg);
+    windows_ui::add_round_rect(path_pb_bg, layout.progress_x, layout.progress_y, layout.progress_w, layout.progress_h, radius_pb);
+    let _ = GdipFillPath(graphics, pb_bg_brush as _, path_pb_bg);
+    let _ = GdipDeletePath(path_pb_bg);
+    let _ = GdipDeleteBrush(pb_bg_brush as _);
+
+    let visual_p = *window.visual_progress.borrow();
+    if visual_p > 0.0 {
+        let fill_w = (layout.progress_w * (visual_p / 100.0)).max(radius_pb * 2.0);
+        let mut pb_fill_brush = std::ptr::null_mut();
+        let _ = GdipCreateSolidFill(colors.progress_fill, &mut pb_fill_brush);
+        let mut path_pb_fill = std::ptr::null_mut();
+        let _ = GdipCreatePath(FillModeAlternate, &mut path_pb_fill);
+        windows_ui::add_round_rect(path_pb_fill, layout.progress_x, layout.progress_y, fill_w, layout.progress_h, radius_pb);
+        let _ = GdipFillPath(graphics, pb_fill_brush as _, path_pb_fill);
+        let _ = GdipDeletePath(path_pb_fill);
+        let _ = GdipDeleteBrush(pb_fill_brush as _);
+    }
+}
+
+fn draw_text(window: &SplashWindow, hdc: &w::HDC, layout: SplashLayout, colors: &ThemeColors) -> Result<()> {
+    if let Some(font) = window.title_font.borrow().as_ref() {
+        windows_ui::draw_text(
+            hdc,
+            font,
+            colors.title_text,
+            &layout.title_rect,
+            co::DT::CENTER | co::DT::SINGLELINE | co::DT::VCENTER,
+            &window.title,
+        )
+        .map_err(|e| anyhow::anyhow!(e))?;
+    }
+
+    if let Some(font) = window.status_font.borrow().as_ref() {
+        let status = window.status_text.borrow();
+        windows_ui::draw_text(
+            hdc,
+            font,
+            colors.status_text,
+            &layout.status_rect,
+            co::DT::CENTER | co::DT::WORDBREAK,
+            &status,
+        )
+        .map_err(|e| anyhow::anyhow!(e))?;
+    }
+    Ok(())
 }
