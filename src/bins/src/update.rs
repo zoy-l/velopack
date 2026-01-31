@@ -7,9 +7,12 @@ extern crate log;
 use anyhow::{anyhow, bail, Result};
 use clap::{arg, value_parser, ArgAction, ArgMatches, Command};
 use std::{env, path::PathBuf};
-use velopack::locator::{auto_locate_app_manifest, LocationContext};
+use velopack::bundle;
+use velopack::locator::{self, auto_locate_app_manifest, LocationContext};
 use velopack::logging::*;
+use velopack::Error as VelopackError;
 use velopack_bins::{shared::OperationWait, *};
+use zip::result::ZipError;
 
 #[rustfmt::skip]
 fn root_command() -> Command {
@@ -119,6 +122,74 @@ fn get_op_wait(matches: &ArgMatches) -> shared::OperationWait {
         shared::OperationWait::WaitParent
     } else {
         shared::OperationWait::NoWait
+    }
+}
+
+fn is_zip_related_error(err: &anyhow::Error) -> bool {
+    err.chain().any(|cause| {
+        if cause.downcast_ref::<ZipError>().is_some() {
+            return true;
+        }
+        if let Some(vp_err) = cause.downcast_ref::<VelopackError>() {
+            return matches!(vp_err, VelopackError::Zip(_));
+        }
+        false
+    })
+}
+
+fn is_permission_or_sharing_io_error(io_err: &std::io::Error) -> bool {
+    match io_err.kind() {
+        std::io::ErrorKind::PermissionDenied | std::io::ErrorKind::WouldBlock => return true,
+        _ => {}
+    }
+    if let Some(code) = io_err.raw_os_error() {
+        // Windows: 5 = Access denied, 32 = Sharing violation, 33 = Lock violation
+        if matches!(code, 5 | 32 | 33) {
+            return true;
+        }
+    }
+    false
+}
+
+fn is_file_in_use_or_permission_error(err: &anyhow::Error) -> bool {
+    err.chain().any(|cause| {
+        if let Some(io_err) = cause.downcast_ref::<std::io::Error>() {
+            return is_permission_or_sharing_io_error(io_err);
+        }
+        false
+    })
+}
+
+fn should_delete_failed_package(err: &anyhow::Error, package: &PathBuf) -> bool {
+    if !is_zip_related_error(err) || is_file_in_use_or_permission_error(err) {
+        return false;
+    }
+
+    match bundle::load_bundle_from_file(package) {
+        Ok(mut bundle) => match bundle.read_manifest() {
+            Ok(_) => {
+                info!("Zip-related error reported, but package is readable. Skipping deletion.");
+                false
+            }
+            Err(e) => {
+                if matches!(e, VelopackError::Zip(_)) {
+                    true
+                } else {
+                    warn!("Failed to validate package; skipping deletion. Error: {}", e);
+                    false
+                }
+            }
+        },
+        Err(e) => {
+            if matches!(e, VelopackError::Zip(_)) {
+                true
+            } else if matches!(e, VelopackError::Io(ref io_err) if is_permission_or_sharing_io_error(io_err)) {
+                false
+            } else {
+                warn!("Failed to open package for verification; skipping deletion. Error: {}", e);
+                false
+            }
+        }
     }
 }
 
@@ -236,13 +307,23 @@ fn apply(matches: &ArgMatches) -> Result<()> {
 
     if let Err(e) = commands::apply(&locator, restart, wait, package, exe_args, true) {
         error!("Error applying update: {}", e);
-        if let Some(package) = package {
-            if package.exists() {
-                warn!("Attempting to delete failed package: {:?}", package);
-                if let Err(e) = std::fs::remove_file(package) {
-                    error!("Failed to delete package: {}", e);
-                } else {
-                    info!("Successfully deleted failed package.");
+        if is_zip_related_error(&e) {
+            let packages_dir = locator.get_packages_dir();
+            let package_to_delete = package
+                .cloned()
+                .or_else(|| locator::find_latest_full_package(&packages_dir).map(|x| x.0));
+            if let Some(package) = package_to_delete {
+                if package.exists() {
+                    if should_delete_failed_package(&e, &package) {
+                        warn!("Attempting to delete failed package to trigger full update: {:?}", package);
+                        if let Err(e) = std::fs::remove_file(&package) {
+                            error!("Failed to delete package: {}", e);
+                        } else {
+                            info!("Successfully deleted failed package.");
+                        }
+                    } else if is_file_in_use_or_permission_error(&e) {
+                        warn!("Zip-related error detected, but package will not be deleted due to permission/file-in-use error.");
+                    }
                 }
             }
         }

@@ -1,6 +1,6 @@
 use crate::shared::{self, OperationWait};
 use velopack::{locator, locator::VelopackLocator, constants};
-use anyhow::{bail, Result};
+use anyhow::{bail, Context, Result};
 use std::path::PathBuf;
 
 #[cfg(target_os = "linux")]
@@ -36,13 +36,13 @@ pub fn apply<'a>(
                     if restart {
                         shared::start_package(&applied_locator, exe_args, Some(constants::HOOK_ENV_RESTART))?;
                     }
-                    return Ok(applied_locator);
+                    Ok(applied_locator)
                 }
                 Err(e) => {
                     if restart {
                         shared::start_package(&locator, exe_args, Some(constants::HOOK_ENV_RESTART))?;
                     }
-                    bail!("Error applying package: {}", e);
+                    Err(e.context("Error applying package"))
                 }
             }
         }
