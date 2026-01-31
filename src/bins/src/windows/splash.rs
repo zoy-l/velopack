@@ -48,7 +48,7 @@ fn theme_colors(theme: ThemeMode) -> ThemeColors {
     match theme {
         ThemeMode::Dark => ThemeColors {
             background: 0xFF202020,
-            title_text: w::COLORREF::new(255, 255, 255),
+            title_text: w::COLORREF::new(230, 230, 230),
             status_text: w::COLORREF::new(180, 180, 180),
             close_hover_bg: 0x33FFFFFF,
             close_icon: 0xFFA0A0A0,
@@ -58,7 +58,7 @@ fn theme_colors(theme: ThemeMode) -> ThemeColors {
         },
         ThemeMode::Light => ThemeColors {
             background: 0xFFF6F6F6,
-            title_text: w::COLORREF::new(30, 30, 30),
+            title_text: w::COLORREF::new(60, 60, 60),
             status_text: w::COLORREF::new(90, 90, 90),
             close_hover_bg: 0x14000000,
             close_icon: 0xFF666666,
@@ -486,8 +486,8 @@ fn init_fonts(window: &SplashWindow, scale: f32) {
 
         let mut lf_title = ncm.lfMessageFont;
         // lfHeight = -((font_size_pt * 96.0 / 72.0) * scale)
-        lf_title.lfHeight = -((20.0 * 96.0 / 72.0) * scale) as i32;
-        lf_title.lfWeight = 700; // Bold
+        lf_title.lfHeight = -((16.0 * 96.0 / 72.0) * scale) as i32;
+        lf_title.lfWeight = 600; // Semibold
         lf_title.lfQuality = CLEARTYPE_QUALITY;
         let hfont_title = CreateFontIndirectW(&lf_title);
         if !hfont_title.0.is_null() {
