@@ -11,8 +11,9 @@ use std::{
 use winsafe::{self as w, co, gui, prelude::*};
 
 // DWM imports from windows crate
+use windows::core::BOOL;
 use windows::Win32::Foundation::HWND as WinHWND;
-use windows::Win32::Graphics::Dwm::DwmExtendFrameIntoClientArea;
+use windows::Win32::Graphics::Dwm::{DwmExtendFrameIntoClientArea, DwmSetWindowAttribute, DWMWA_USE_IMMERSIVE_DARK_MODE};
 use windows::Win32::UI::Controls::MARGINS;
 
 // GDI imports for CreateDIBSection fallback
@@ -93,7 +94,7 @@ impl SplashWindow {
             size: (w as u32, h as u32),
             // WS_EX_TOOLWINDOW hides it from the taskbar and Alt-Tab
             ex_style: co::WS_EX::TOOLWINDOW | co::WS_EX::TOPMOST,
-            style: co::WS::POPUP | co::WS::VISIBLE | co::WS::THICKFRAME,
+            style: co::WS::POPUP | co::WS::THICKFRAME,
             ..Default::default()
         });
 
@@ -162,9 +163,23 @@ impl SplashWindow {
     fn events(&mut self) {
         let self2 = self.clone();
         self.wnd.on().wm_create(move |_m| {
-            // Center
             let raw_hwnd = self2.wnd.hwnd().ptr();
             let win_hwnd = WinHWND(raw_hwnd);
+
+            // 1. DWM Extension and Dark Mode (Do this before moving/showing)
+            unsafe {
+                let margins = MARGINS { cxLeftWidth: 0, cxRightWidth: 0, cyTopHeight: 1, cyBottomHeight: 0 };
+                let _ = DwmExtendFrameIntoClientArea(win_hwnd, &margins);
+                let use_dark_mode = BOOL::from(true);
+                let _ = DwmSetWindowAttribute(
+                    win_hwnd,
+                    DWMWA_USE_IMMERSIVE_DARK_MODE,
+                    &use_dark_mode as *const _ as *const _,
+                    std::mem::size_of::<BOOL>() as u32,
+                );
+            }
+
+            // 2. Position and Size (Use NOREDRAW/HIDEWINDOW if needed, but here we just want it ready)
             let scale = get_dpi_scale(win_hwnd);
             *self2.dpi_scale.borrow_mut() = scale;
 
@@ -176,17 +191,18 @@ impl SplashWindow {
             let x = (screen_cx - w_val) / 2;
             let y = (screen_cy - h_val) / 2;
 
-            self2.wnd.hwnd().SetWindowPos(w::HwndPlace::None, w::POINT { x, y }, w::SIZE { cx: w_val, cy: h_val }, co::SWP::NOZORDER)?;
-
-            // DWM Extension
-            let raw_hwnd = self2.wnd.hwnd().ptr();
-            let win_hwnd = WinHWND(raw_hwnd);
-            let margins = MARGINS { cxLeftWidth: 1, cxRightWidth: 1, cyTopHeight: 1, cyBottomHeight: 1 };
-            unsafe {
-                let _ = DwmExtendFrameIntoClientArea(win_hwnd, &margins);
-            }
+            self2.wnd.hwnd().SetWindowPos(
+                w::HwndPlace::None,
+                w::POINT { x, y },
+                w::SIZE { cx: w_val, cy: h_val },
+                co::SWP::NOZORDER | co::SWP::NOACTIVATE,
+            )?;
 
             self2.wnd.hwnd().SetTimer(TMR_PROGRESS, 50, None)?;
+
+            // 3. Finally show and focus
+            self2.wnd.hwnd().ShowWindow(co::SW::SHOW);
+            self2.wnd.hwnd().SetForegroundWindow();
             Ok(0)
         });
 
@@ -214,6 +230,10 @@ impl SplashWindow {
         self.wnd.on().wm_nc_calc_size(|_p| Ok(co::WVR::REDRAW));
 
         let self2 = self.clone();
+        self.wnd.on().wm_erase_bkgnd(move |_| {
+            Ok(1) // 返回非 0 表示背景已擦除，防止系统默认擦除（导致白闪）
+        });
+
         self.wnd.on().wm_timer(TMR_PROGRESS, move || {
             let mut changed = false;
             loop {
