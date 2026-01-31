@@ -114,20 +114,22 @@ fn main() -> Result<()> {
         Commands::Progress { content } => {
             let tx = velopack_bins::windows::splash::show_progress_dialog("Test App", &content);
             for i in (0..=100).step_by(10) {
-                let _ = tx.send(i as i16);
+                if tx.send(i as i16).is_err() {
+                    break;
+                }
                 std::thread::sleep(std::time::Duration::from_millis(500));
             }
             let _ = tx.send(velopack_bins::windows::splash::MSG_CLOSE);
-            std::thread::sleep(std::time::Duration::from_millis(500));
         }
         Commands::Splash { name } => {
             let tx = velopack_bins::windows::splash::show_splash_dialog(name, None);
             for i in (0..=100).step_by(5) {
-                let _ = tx.send(i as i16);
+                if tx.send(i as i16).is_err() {
+                    break;
+                }
                 std::thread::sleep(std::time::Duration::from_millis(1000));
             }
             let _ = tx.send(velopack_bins::windows::splash::MSG_CLOSE);
-            std::thread::sleep(std::time::Duration::from_millis(500));
         }
     }
 
