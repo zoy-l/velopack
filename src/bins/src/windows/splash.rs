@@ -80,9 +80,9 @@ const IMAGE_DATA: &[u8] = include_bytes!("../assets/product_logo.png");
 pub const MSG_CLOSE: i16 = -1;
 pub const MSG_INDEFINITE: i16 = -2;
 
-pub fn show_progress_dialog<T1: AsRef<str>, T2: AsRef<str>>(window_title: T1, content: T2) -> Sender<i16> {
+pub fn show_progress_dialog<T: AsRef<str>>(window_title: T) -> Sender<i16> {
     let window_title = window_title.as_ref().to_string();
-    let content = content.as_ref().to_string();
+    let content = "更新中...".to_string();
     let (tx, rx) = mpsc::channel::<i16>();
     thread::spawn(move || {
         let _ = SplashWindow::new(window_title, content, rx).and_then(|w| {
@@ -94,8 +94,15 @@ pub fn show_progress_dialog<T1: AsRef<str>, T2: AsRef<str>>(window_title: T1, co
 }
 
 pub fn show_splash_dialog(app_name: String, _imgstream: Option<Vec<u8>>) -> Sender<i16> {
-    let content = format!("安装中 {}...", app_name);
-    show_progress_dialog(app_name, content)
+    let content = "安装中...".to_string();
+    let (tx, rx) = mpsc::channel::<i16>();
+    thread::spawn(move || {
+        let _ = SplashWindow::new(app_name, content, rx).and_then(|w| {
+            w.run()?;
+            Ok(())
+        });
+    });
+    tx
 }
 
 #[derive(Clone, Copy)]

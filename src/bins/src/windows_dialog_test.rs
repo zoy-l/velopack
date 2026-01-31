@@ -61,7 +61,7 @@ enum Commands {
     /// Show a progress dialog
     Progress {
         /// Content of the dialog
-        #[arg(short, long, default_value = "Downloading update...")]
+        #[arg(short, long, default_value = "更新中...")]
         content: String,
     },
     /// Show a splash screen
@@ -116,8 +116,8 @@ fn main() -> Result<()> {
             let result = dialogs::show_overwrite_repair_dialog(&m, &root);
             println!("Result: {}", result);
         }
-        Commands::Progress { content } => {
-            let tx = velopack_bins::windows::splash::show_progress_dialog("Test App", &content);
+        Commands::Progress { .. } => {
+            let tx = velopack_bins::windows::splash::show_progress_dialog("Test App");
             for i in (0..=100).step_by(10) {
                 if tx.send(i as i16).is_err() {
                     break;

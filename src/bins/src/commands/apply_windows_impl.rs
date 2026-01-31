@@ -62,8 +62,7 @@ pub fn apply_package_impl(old_locator: &VelopackLocator, package: &PathBuf, run_
     let (mut tx, _) = mpsc::channel::<i16>();
     if !dialogs::get_silent() {
         let title = format!("{} Update", new_locator.get_manifest_title());
-        let message = format!("Installing update {}...", new_locator.get_manifest_version_full_string());
-        tx = splash::show_progress_dialog(title, message);
+        tx = splash::show_progress_dialog(title);
     }
 
     let action: Result<()> = (|| {

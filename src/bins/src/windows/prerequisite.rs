@@ -54,7 +54,7 @@ pub fn prompt_and_install_all_missing(app: &bundle::Manifest, updating_from: Opt
                 let content = format!("Downloading {}...", dep.display_name());
                 info!("    {}", content);
 
-                let tx = splash::show_progress_dialog(window_title, content);
+                let tx = splash::show_progress_dialog(window_title);
                 let result = download::download_url_to_file(&url, &exe_name.to_str().unwrap(), |p| {
                     let _ = tx.send(p);
                 });
