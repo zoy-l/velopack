@@ -8,7 +8,7 @@ use std::{
     sync::mpsc::{self, Receiver, Sender},
     thread,
 };
-use winsafe::{self as w, co, gui, prelude::*};
+use winsafe::{self as w, co, guard::DeleteObjectGuard, gui, prelude::*};
 
 // DWM imports from windows crate
 use windows::core::BOOL;
@@ -53,6 +53,9 @@ pub fn show_splash_dialog(app_name: String, _imgstream: Option<Vec<u8>>) -> Send
 fn get_dpi_scale(hwnd: WinHWND) -> f32 {
     unsafe {
         let hdc = GetDC(Some(hwnd));
+        if hdc.is_invalid() {
+            return 1.0;
+        }
         let dpi = GetDeviceCaps(Some(hdc), LOGPIXELSY);
         ReleaseDC(Some(hwnd), hdc);
         if dpi > 0 {
@@ -74,11 +77,13 @@ pub struct SplashWindow {
     // Cache for Logo BGRA data: (width, height, pixels)
     logo_data: Rc<Option<(i32, i32, Vec<u8>)>>,
     // Cache for GDI Object
-    logo_hbmp: Rc<RefCell<Option<w::HBITMAP>>>,
-    title_font: Rc<RefCell<Option<w::HFONT>>>,
-    status_font: Rc<RefCell<Option<w::HFONT>>>,
+    logo_hbmp: Rc<RefCell<Option<DeleteObjectGuard<w::HBITMAP>>>>,
+    title_font: Rc<RefCell<Option<DeleteObjectGuard<w::HFONT>>>>,
+    status_font: Rc<RefCell<Option<DeleteObjectGuard<w::HFONT>>>>,
     dpi_scale: Rc<RefCell<f32>>,
     is_close_hovered: Rc<RefCell<bool>>,
+    should_close: Rc<RefCell<bool>>,
+    close_delay_ticks: Rc<RefCell<i32>>,
 }
 
 impl SplashWindow {
@@ -147,6 +152,8 @@ impl SplashWindow {
             status_font,
             dpi_scale,
             is_close_hovered,
+            should_close: Rc::new(RefCell::new(false)),
+            close_delay_ticks: Rc::new(RefCell::new(20)), // 60fps 下 20 ticks 约为 320ms
         };
         new_self.events();
         Ok(new_self)
@@ -198,7 +205,7 @@ impl SplashWindow {
                 co::SWP::NOZORDER | co::SWP::NOACTIVATE,
             )?;
 
-            self2.wnd.hwnd().SetTimer(TMR_PROGRESS, 50, None)?;
+            self2.wnd.hwnd().SetTimer(TMR_PROGRESS, 16, None)?; // ~60 FPS
 
             // 3. Finally show and focus
             self2.wnd.hwnd().ShowWindow(co::SW::SHOW);
@@ -241,28 +248,51 @@ impl SplashWindow {
                 if msg == MSG_NOMESSAGE {
                     break;
                 } else if msg == MSG_CLOSE {
-                    self2.wnd.hwnd().SendMessage(w::msg::wm::Close {});
-                    return Ok(());
+                    *self2.should_close.borrow_mut() = true;
                 } else if msg >= 0 {
                     let mut tp = self2.target_progress.borrow_mut();
                     *tp = msg;
                 }
             }
 
-            // Animation
-            let target = *self2.target_progress.borrow() as f32;
-            let mut visual = self2.visual_progress.borrow_mut();
-            let diff = target - *visual;
-            if diff.abs() > 0.1 {
-                *visual += diff * 0.1;
-                changed = true;
-            } else if diff.abs() > 0.001 {
-                *visual = target;
-                changed = true;
+            {
+                // Animation
+                let target = *self2.target_progress.borrow() as f32;
+                let mut visual = self2.visual_progress.borrow_mut();
+                let diff = target - *visual;
+
+                if diff.abs() > 0.01 {
+                    // 更加平滑的插值：基于距离的比例 + 最小步长，确保不会在末尾停滞
+                    let step = (diff * 0.15).abs().max(0.1);
+                    if diff > 0.0 {
+                        *visual = (*visual + step).min(target);
+                    } else {
+                        *visual = (*visual - step).max(target);
+                    }
+                    changed = true;
+                }
             }
 
             if changed {
                 self2.wnd.hwnd().InvalidateRect(None, false)?;
+            }
+
+            let should_close = self2.should_close.borrow();
+            if *should_close {
+                let visual = *self2.visual_progress.borrow();
+                let target = *self2.target_progress.borrow() as f32;
+                // 确保动画基本完成 (>= 99.9)
+                if target >= 100.0 && visual >= 99.9 {
+                    let mut delay = self2.close_delay_ticks.borrow_mut();
+                    if *delay <= 0 {
+                        self2.wnd.hwnd().SendMessage(w::msg::wm::Close {});
+                    } else {
+                        *delay -= 1;
+                    }
+                } else if target < 100.0 && (target - visual).abs() < 1.0 {
+                    // 对于非 100% 的提前关闭（如果有），直接关闭
+                    self2.wnd.hwnd().SendMessage(w::msg::wm::Close {});
+                }
             }
             Ok(())
         });
@@ -316,8 +346,12 @@ impl SplashWindow {
                         let win_hdc = WinHDC(hdc.ptr());
                         if let Ok(hbmp) = CreateDIBSection(Some(win_hdc), &bmi, DIB_RGB_COLORS, &mut pbits, None, 0) {
                             if !pbits.is_null() {
-                                std::ptr::copy_nonoverlapping(data.as_ptr(), pbits as *mut u8, data.len());
-                                *self2.logo_hbmp.borrow_mut() = Some(w::HBITMAP::from_ptr(hbmp.0 as *mut _));
+                                let expected_len = (*lw * *lh * 4) as usize;
+                                if data.len() >= expected_len {
+                                    std::ptr::copy_nonoverlapping(data.as_ptr(), pbits as *mut u8, expected_len);
+                                    let hbmp = w::HBITMAP::from_ptr(hbmp.0 as *mut _);
+                                    *self2.logo_hbmp.borrow_mut() = Some(DeleteObjectGuard::new(hbmp));
+                                }
                             }
                         }
                     }
@@ -326,7 +360,7 @@ impl SplashWindow {
                 // Draw if ready
                 if let Some(hbmp) = self2.logo_hbmp.borrow().as_ref() {
                     if let Ok(hdc_logo) = hdc.CreateCompatibleDC() {
-                        if let Ok(_old) = hdc_logo.SelectObject(hbmp) {
+                        if let Ok(_old) = hdc_logo.SelectObject(&**hbmp) {
                             use windows::Win32::Graphics::Gdi::{AlphaBlend as WinAlphaBlend, BLENDFUNCTION};
                             let blend_fn = BLENDFUNCTION { BlendOp: 0, BlendFlags: 0, SourceConstantAlpha: 255, AlphaFormat: 1 };
                             let logo_x = (w - logo_display_size) / 2;
@@ -364,7 +398,7 @@ impl SplashWindow {
                 }
 
                 // Helper to create font from system metric name but with custom size/weight
-                let create_font = |height: i32, weight: co::FW, face_name: &[u16]| -> Option<w::HFONT> {
+                let create_font = |height: i32, weight: co::FW, face_name: &[u16]| -> Option<DeleteObjectGuard<w::HFONT>> {
                     let len = face_name.iter().position(|&c| c == 0).unwrap_or(face_name.len());
                     let face_name_str = String::from_utf16_lossy(&face_name[..len]);
 
@@ -384,7 +418,6 @@ impl SplashWindow {
                         &face_name_str,
                     )
                     .ok()
-                    .map(|mut g| g.leak())
                 };
 
                 // Create Title Font (Bold, Larger) - Using system font face from ncm.lfMessageFont
@@ -407,7 +440,7 @@ impl SplashWindow {
             let title_rc = w::RECT { left: 0, top: text_start_y, right: w, bottom: text_start_y + title_height };
 
             if let Some(font) = self2.title_font.borrow().as_ref() {
-                let _guard = hdc_mem.SelectObject(font)?;
+                let _guard = hdc_mem.SelectObject(&**font)?;
                 hdc_mem.DrawText(&self2.title, &title_rc, co::DT::CENTER | co::DT::SINGLELINE | co::DT::NOPREFIX)?;
             }
 
@@ -417,7 +450,7 @@ impl SplashWindow {
                 w::RECT { left: 20, top: text_start_y + title_height, right: w - 20, bottom: text_start_y + title_height + status_height };
 
             if let Some(font) = self2.status_font.borrow().as_ref() {
-                let _guard = hdc_mem.SelectObject(font)?;
+                let _guard = hdc_mem.SelectObject(&**font)?;
                 hdc_mem.DrawText(&self2.status_text.borrow(), &status_rc, co::DT::CENTER | co::DT::SINGLELINE | co::DT::NOPREFIX)?;
             }
             // 4. Progress Bar (Rounded, Padding from Bottom) - Super-Sampled for Anti-Aliasing

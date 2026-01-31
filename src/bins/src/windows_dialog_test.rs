@@ -120,6 +120,7 @@ fn main() -> Result<()> {
                 std::thread::sleep(std::time::Duration::from_millis(500));
             }
             let _ = tx.send(velopack_bins::windows::splash::MSG_CLOSE);
+            std::thread::sleep(std::time::Duration::from_millis(1000));
         }
         Commands::Splash { name } => {
             let tx = velopack_bins::windows::splash::show_splash_dialog(name, None);
@@ -127,9 +128,10 @@ fn main() -> Result<()> {
                 if tx.send(i as i16).is_err() {
                     break;
                 }
-                std::thread::sleep(std::time::Duration::from_millis(1000));
+                std::thread::sleep(std::time::Duration::from_millis(100));
             }
             let _ = tx.send(velopack_bins::windows::splash::MSG_CLOSE);
+            std::thread::sleep(std::time::Duration::from_millis(1000));
         }
     }
 
